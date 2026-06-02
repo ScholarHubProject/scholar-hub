@@ -37,9 +37,10 @@ export const getUploadUrl = (uploadPath) => {
   return `${new URL(apiBaseUrl).origin}${publicUploadPath}`;
 };
 
-const api = axios.create({
-  baseURL: getApiBaseUrl(),
-  timeout: 10000,
-});
+const API_BASE_URL =
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:5001/api"
+    : "https://scholarhub-backend-i7am.onrender.com/api";
 
-export default api;
+export default API_BASE_URL;
