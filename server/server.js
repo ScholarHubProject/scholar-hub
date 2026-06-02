@@ -7,8 +7,8 @@ const multer = require("multer");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5001;
-const HOST = "127.0.0.1";
-const DATABASE = "scholarhub_db";
+const HOST = "0.0.0.0";
+const DATABASE = process.env.DB_NAME || "scholarhub_db";
 const clientDistPath = path.join(__dirname, "..", "client", "dist");
 const uploadRoot = path.join(__dirname, "uploads");
 const applicationUploadDir = path.join(uploadRoot, "applications");
@@ -250,10 +250,11 @@ const createZipArchive = (files) => {
 };
 
 const db = mysql.createConnection({
-  host: HOST,
-  port: 3306,
-  user: "root",
-  password: "12345678",
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT) || 3306,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: DATABASE,
   multipleStatements: true,
 });
 
