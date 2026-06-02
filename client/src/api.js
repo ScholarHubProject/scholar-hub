@@ -6,7 +6,7 @@ export const getApiBaseUrl = () => {
   }
 
   if (window.location.port === "5173") {
-    return "http://127.0.0.1:5001/api";
+    return "https://scholarhub-backend-i7am.onrender.com/api";
   }
 
   return "/api";
