@@ -4,15 +4,59 @@ const mysql = require("mysql2");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+require("dotenv").config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5001;
 const HOST = "0.0.0.0";
-const DATABASE = process.env.DB_NAME || "scholarhub_db";
 const clientDistPath = path.join(__dirname, "..", "client", "dist");
 const uploadRoot = path.join(__dirname, "uploads");
 const applicationUploadDir = path.join(uploadRoot, "applications");
 const avatarUploadDir = path.join(uploadRoot, "avatars");
+const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL;
+const databaseUrlConfig = (() => {
+  if (!databaseUrl) return {};
+
+  try {
+    const parsedUrl = new URL(databaseUrl);
+
+    return {
+      host: parsedUrl.hostname,
+      port: parsedUrl.port ? Number(parsedUrl.port) : undefined,
+      user: decodeURIComponent(parsedUrl.username || ""),
+      password: decodeURIComponent(parsedUrl.password || ""),
+      database: parsedUrl.pathname.replace(/^\/+/, ""),
+    };
+  } catch (err) {
+    console.log("Database URL parse error:", err.message);
+    return {};
+  }
+})();
+const DATABASE =
+  process.env.DB_NAME ||
+  process.env.MYSQLDATABASE ||
+  databaseUrlConfig.database ||
+  "scholarhub_db";
+const dbConfig = {
+  host: process.env.DB_HOST || process.env.MYSQLHOST || databaseUrlConfig.host,
+  port: Number(process.env.DB_PORT || process.env.MYSQLPORT || databaseUrlConfig.port) || 3306,
+  user: process.env.DB_USER || process.env.MYSQLUSER || databaseUrlConfig.user,
+  password: process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || databaseUrlConfig.password,
+  database: DATABASE,
+  multipleStatements: true,
+  waitForConnections: true,
+  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 5,
+  queueLimit: 0,
+  connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS) || 20000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
+};
+
+if (process.env.DB_SSL === "true" || process.env.MYSQL_SSL === "true") {
+  dbConfig.ssl = {
+    rejectUnauthorized: false,
+  };
+}
 const EMPTY_DASHBOARD_STATS = {
   total_applicants: 0,
   approved_students: 0,
@@ -250,12 +294,7 @@ const createZipArchive = (files) => {
 };
 
 const db = mysql.createPool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: DATABASE,
-  multipleStatements: true,
+  ...dbConfig,
 });
 
 const ensureColumn = (columnName, definition) => {
@@ -485,13 +524,15 @@ const seedDefaultAdmin = () => {
 };
 
 const initializeDatabase = () => {
-  db.query(`CREATE DATABASE IF NOT EXISTS ${DATABASE}`, (dbErr) => {
+  const escapedDatabase = mysql.escapeId(DATABASE);
+
+  db.query(`CREATE DATABASE IF NOT EXISTS ${escapedDatabase}`, (dbErr) => {
     if (dbErr) {
       console.log("Database Create Error:", dbErr);
       return;
     }
 
-    db.query(`USE ${DATABASE}`, (useErr) => {
+    db.query(`USE ${escapedDatabase}`, (useErr) => {
       if (useErr) {
         console.log("Database Select Error:", useErr);
         return;
@@ -549,7 +590,17 @@ app.get("/", serveClientApp, (req, res) => {
 });
 
 app.get("/api/test", (req, res) => {
-  res.json({ message: "Backend and MySQL are working" });
+  db.query("SELECT 1 AS ok", (err) => {
+    if (err) {
+      console.log("Database Health Check Error:", err);
+      return res.status(500).json({
+        message: "Backend is running, but MySQL is not reachable",
+        error: err.code || err.message,
+      });
+    }
+
+    return res.json({ message: "Backend and MySQL are working" });
+  });
 });
 
 const registerUser = (req, res) => {

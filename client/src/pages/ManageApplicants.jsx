@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import api from "../api";
+import api, { getApiUrl } from "../api";
 import {
   buttonDangerStyle,
   buttonPrimaryStyle,
@@ -113,7 +113,7 @@ const getFolderSize = (application) =>
   );
 
 const getFolderDownloadUrl = (application) =>
-  `/api/applications/${application.id}/files/download`;
+  getApiUrl(`/applications/${application.id}/files/download`);
 
 const EmailIcon = () => (
   <svg

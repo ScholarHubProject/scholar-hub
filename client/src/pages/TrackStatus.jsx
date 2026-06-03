@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import api from "../api";
+import api, { getApiUrl } from "../api";
 import {
   buttonSecondaryStyle,
   cardGridStyle,
@@ -46,7 +46,7 @@ const getApplicationFiles = (application) => {
 };
 
 const getFileUrl = (application, fileIndex) =>
-  `/api/applications/${application.id}/file?file=${fileIndex}`;
+  getApiUrl(`/applications/${application.id}/file?file=${fileIndex}`);
 
 const getApplicationFormFiles = (application) => getApplicationFiles(application).slice(0, 1);
 
