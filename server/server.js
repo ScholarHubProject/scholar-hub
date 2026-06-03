@@ -249,7 +249,7 @@ const createZipArchive = (files) => {
   return Buffer.concat([localData, centralDirectory, endRecord]);
 };
 
-const db = mysql.createConnection({
+const db = mysql.createPool({
   host: process.env.DB_HOST,
   port: Number(process.env.DB_PORT) || 3306,
   user: process.env.DB_USER,
@@ -534,12 +534,13 @@ const createUsersTable = `
   });
 };
 
-db.connect((err) => {
+db.getConnection((err, connection) => {
   if (err) {
     console.log("MySQL Error:", err);
     return;
   }
 
+  connection.release();
   initializeDatabase();
 });
 
