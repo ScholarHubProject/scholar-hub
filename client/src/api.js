@@ -14,7 +14,9 @@ export const getApiBaseUrl = () => {
     return "http://127.0.0.1:5001/api";
   }
 
-  return "https://scholarhub-backend-i7am.onrender.com/api";
+  // In production the API is a Netlify function served from this same origin,
+  // so a relative path avoids hardcoding a deployment URL.
+  return "/api";
 };
 
 export const getApiUrl = (path) => {

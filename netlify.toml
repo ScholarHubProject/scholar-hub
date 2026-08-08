@@ -1,0 +1,31 @@
+[build]
+  command = "npm run netlify-build"
+  publish = "client/dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  node_bundler = "esbuild"
+
+# API and uploaded files are served by the Express app running as a function.
+# These come before the SPA fallback so they are matched first.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/uploads/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+# Everything else is the React single page app; client side routes must return
+# index.html rather than a 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

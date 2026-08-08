@@ -1,18 +1,15 @@
 const express = require("express");
 const cors = require("cors");
 const { Pool, types } = require("pg");
-const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const storage = require("./storage");
 require("dotenv").config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5001;
 const HOST = "0.0.0.0";
 const clientDistPath = path.join(__dirname, "..", "client", "dist");
-const uploadRoot = path.join(__dirname, "uploads");
-const applicationUploadDir = path.join(uploadRoot, "applications");
-const avatarUploadDir = path.join(uploadRoot, "avatars");
 const databaseUrl =
   process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
 const databaseUrlConfig = (() => {
@@ -68,8 +65,6 @@ const EMPTY_DASHBOARD_STATS = {
 app.use(cors());
 app.use(express.json());
 
-fs.mkdirSync(applicationUploadDir, { recursive: true });
-fs.mkdirSync(avatarUploadDir, { recursive: true });
 
 const sanitizeUploadPathPart = (value, fallback) => {
   const cleanedValue = String(value || "")
@@ -82,50 +77,41 @@ const sanitizeUploadPathPart = (value, fallback) => {
   return cleanedValue || fallback;
 };
 
-const applicationStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const studentName = req.body?.studentName || req.body?.student_name;
-    const studentFolder = sanitizeUploadPathPart(studentName, "unknown-student");
-    const studentUploadDir = path.join(applicationUploadDir, studentFolder);
+// Files are held in memory and forwarded to Supabase Storage. Nothing touches
+// the local filesystem, which is read-only on Vercel.
+const uniqueSuffix = () => `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
 
-    fs.mkdirSync(studentUploadDir, { recursive: true });
-    cb(null, studentUploadDir);
-  },
-  filename: (req, file, cb) => {
-    const originalName = sanitizeUploadPathPart(
-      path.basename(file.originalname || "application-file"),
-      "attachment"
-    );
-    const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${suffix}-${originalName}`);
-  },
-});
+// Object keys keep the shape the old disk paths had ("applications/<student>/…",
+// "avatars/…") so existing rows and the client's URL building still line up.
+const buildApplicationObjectPath = (studentName, originalName) => {
+  const studentFolder = sanitizeUploadPathPart(studentName, "unknown-student");
+  const fileName = sanitizeUploadPathPart(
+    path.basename(originalName || "application-file"),
+    "attachment"
+  );
+
+  return `applications/${studentFolder}/${uniqueSuffix()}-${fileName}`;
+};
+
+const buildAvatarObjectPath = (originalName) => {
+  const extension = path.extname(originalName || "").toLowerCase();
+  const baseName = sanitizeUploadPathPart(
+    path.basename(originalName || "profile-photo", extension),
+    "profile-photo"
+  );
+
+  return `avatars/${uniqueSuffix()}-${baseName}${extension || ".jpg"}`;
+};
 
 const applicationUpload = multer({
-  storage: applicationStorage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
   },
 });
 
-const avatarStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    fs.mkdirSync(avatarUploadDir, { recursive: true });
-    cb(null, avatarUploadDir);
-  },
-  filename: (req, file, cb) => {
-    const extension = path.extname(file.originalname || "").toLowerCase();
-    const baseName = sanitizeUploadPathPart(
-      path.basename(file.originalname || "profile-photo", extension),
-      "profile-photo"
-    );
-    const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${suffix}-${baseName}${extension || ".jpg"}`);
-  },
-});
-
 const avatarUpload = multer({
-  storage: avatarStorage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 3 * 1024 * 1024,
   },
@@ -951,27 +937,40 @@ const updateUserProfile = (req, res) => {
   );
 };
 
-const updateUserAvatar = (req, res) => {
+const updateUserAvatar = async (req, res) => {
   const { id, email } = req.body || {};
   const cleanId = Number(id);
   const hasUserId = Number.isInteger(cleanId) && cleanId > 0;
   const cleanEmail = normalizeEmail(email);
   const uploadedFile = req.file;
 
-  const cleanupUploadedAvatar = () => {
-    if (uploadedFile?.path) {
-      fs.unlink(uploadedFile.path, () => {});
-    }
-  };
-
   if ((!hasUserId && !cleanEmail) || !uploadedFile) {
-    cleanupUploadedAvatar();
     return res.status(400).json({
       message: "User account and profile photo are required",
     });
   }
 
-  const relativeAvatarPath = path.relative(uploadRoot, uploadedFile.path).split(path.sep).join("/");
+  if (!storage.isStorageConfigured()) {
+    console.log("Avatar Upload Error:", storage.storageNotConfiguredMessage);
+    return res.status(500).json({
+      message: "Profile photo uploads are unavailable right now.",
+    });
+  }
+
+  const relativeAvatarPath = buildAvatarObjectPath(uploadedFile.originalname);
+
+  try {
+    await storage.putObject(relativeAvatarPath, uploadedFile.buffer, uploadedFile.mimetype);
+  } catch (uploadErr) {
+    console.log("Avatar Upload Error:", uploadErr.message);
+    return res.status(500).json({
+      message: "Failed to upload profile photo. Please try again.",
+    });
+  }
+
+  const cleanupUploadedAvatar = () => {
+    storage.removeObject(relativeAvatarPath);
+  };
   const whereClause = hasUserId ? "id = ?" : "LOWER(email) = ?";
   const queryValue = hasUserId ? cleanId : cleanEmail;
   const lookupSql = `
@@ -1014,12 +1013,7 @@ const updateUserAvatar = (req, res) => {
       }
 
       if (previousAvatarPath && previousAvatarPath !== relativeAvatarPath) {
-        const previousAbsolutePath = path.resolve(uploadRoot, previousAvatarPath);
-        const safeUploadRoot = `${path.resolve(uploadRoot)}${path.sep}`;
-
-        if (previousAbsolutePath.startsWith(safeUploadRoot)) {
-          fs.unlink(previousAbsolutePath, () => {});
-        }
+        storage.removeObject(previousAvatarPath);
       }
 
       res.json({
@@ -1322,7 +1316,7 @@ const updateAnnouncement = (req, res) => {
   });
 };
 
-const createApplication = (req, res) => {
+const createApplication = async (req, res) => {
   const body = req.body || {};
   const {
     userId,
@@ -1356,12 +1350,44 @@ const createApplication = (req, res) => {
     ...(Array.isArray(req.files?.attachment) ? req.files.attachment : []),
     ...(req.file ? [req.file] : []),
   ];
-  const uploadedFileRecords = uploadedFiles.map((file) => ({
-    name: file.originalname,
-    path: path.relative(uploadRoot, file.path).split(path.sep).join("/"),
-    type: file.mimetype,
-    size: file.size,
-  }));
+
+  // Validate before uploading so a bad request never leaves orphaned objects.
+  if (!cleanStudentName || !cleanEmail || (!cleanScholarshipId && !cleanScholarshipTitle)) {
+    return res.status(400).json({
+      message: "Student name, email, and scholarship are required",
+    });
+  }
+
+  if (uploadedFiles.length > 0 && !storage.isStorageConfigured()) {
+    console.log("Application Upload Error:", storage.storageNotConfiguredMessage);
+    return res.status(500).json({
+      message: "File uploads are unavailable right now. Please try again later.",
+    });
+  }
+
+  let uploadedFileRecords = [];
+
+  try {
+    uploadedFileRecords = await Promise.all(
+      uploadedFiles.map(async (file) => {
+        const objectPath = buildApplicationObjectPath(cleanStudentName, file.originalname);
+        await storage.putObject(objectPath, file.buffer, file.mimetype);
+
+        return {
+          name: file.originalname,
+          path: objectPath,
+          type: file.mimetype,
+          size: file.size,
+        };
+      })
+    );
+  } catch (uploadErr) {
+    console.log("Application Upload Error:", uploadErr.message);
+    return res.status(500).json({
+      message: "Failed to upload your requirement files. Please try again.",
+    });
+  }
+
   const primaryUploadedFile = uploadedFileRecords[0] || null;
   const uploadedFileName = primaryUploadedFile?.name || null;
   const uploadedFilePath = primaryUploadedFile?.path || null;
@@ -1369,22 +1395,12 @@ const createApplication = (req, res) => {
   const uploadedFileSize = primaryUploadedFile?.size || null;
   const uploadedFilesJson =
     uploadedFileRecords.length > 0 ? JSON.stringify(uploadedFileRecords) : null;
+  // Drops objects already pushed to Storage when the insert below fails.
   const cleanupUploadedFiles = () => {
-    if (uploadedFiles.length === 0) {
-      return;
-    }
-
-    uploadedFiles.forEach((file) => {
-      fs.unlink(file.path, () => {});
+    uploadedFileRecords.forEach((file) => {
+      storage.removeObject(file.path);
     });
   };
-
-  if (!cleanStudentName || !cleanEmail || (!cleanScholarshipId && !cleanScholarshipTitle)) {
-    cleanupUploadedFiles();
-    return res.status(400).json({
-      message: "Student name, email, and scholarship are required",
-    });
-  }
 
   const syncStudentAccount = (done) => {
     const syncSql = `
@@ -1772,20 +1788,31 @@ const getApplicationFile = (req, res) => {
       });
     }
 
-    const absoluteFilePath = path.resolve(uploadRoot, selectedFile.path);
-    const safeUploadRoot = `${path.resolve(uploadRoot)}${path.sep}`;
+    return storage
+      .getObject(selectedFile.path)
+      .then((object) => {
+        if (!object) {
+          return res.status(404).json({
+            message: "Uploaded file not found",
+          });
+        }
 
-    if (!absoluteFilePath.startsWith(safeUploadRoot) || !fs.existsSync(absoluteFilePath)) {
-      return res.status(404).json({
-        message: "Uploaded file not found",
+        const fileName = selectedFile.name || path.basename(selectedFile.path);
+
+        res.setHeader("Content-Type", selectedFile.type || object.contentType);
+        res.setHeader(
+          "Content-Disposition",
+          `${shouldDownload ? "attachment" : "inline"}; filename="${fileName}"`
+        );
+
+        return res.send(object.buffer);
+      })
+      .catch((storageErr) => {
+        console.log("Application File Download Error:", storageErr.message);
+        return res.status(500).json({
+          message: "Failed to load application file",
+        });
       });
-    }
-
-    if (shouldDownload) {
-      return res.download(absoluteFilePath, selectedFile.name || path.basename(absoluteFilePath));
-    }
-
-    return res.sendFile(absoluteFilePath);
   });
 };
 
@@ -1814,40 +1841,49 @@ const getApplicationFilesArchive = (req, res) => {
 
     const application = rows[0];
     const uploadedFiles = parseUploadedFiles(application);
-    const safeUploadRoot = `${path.resolve(uploadRoot)}${path.sep}`;
     const folderName = sanitizeUploadPathPart(application.student_name, "student-requirements");
-    const archiveFiles = uploadedFiles
-      .map((file, index) => {
-        const absoluteFilePath = path.resolve(uploadRoot, file.path);
 
-        if (!absoluteFilePath.startsWith(safeUploadRoot) || !fs.existsSync(absoluteFilePath)) {
+    return Promise.all(
+      uploadedFiles.map(async (file, index) => {
+        const object = await storage.getObject(file.path);
+
+        if (!object) {
           return null;
         }
 
         const fileName = sanitizeUploadPathPart(
-          file.name || path.basename(absoluteFilePath),
+          file.name || path.basename(file.path),
           `requirement-${index + 1}`
         );
 
         return {
           name: `${folderName}/${String(index + 1).padStart(2, "0")}-${fileName}`,
-          data: fs.readFileSync(absoluteFilePath),
+          data: object.buffer,
         };
       })
-      .filter(Boolean);
+    )
+      .then((results) => {
+        const archiveFiles = results.filter(Boolean);
 
-    if (archiveFiles.length === 0) {
-      return res.status(404).json({
-        message: "No uploaded files for this application",
+        if (archiveFiles.length === 0) {
+          return res.status(404).json({
+            message: "No uploaded files for this application",
+          });
+        }
+
+        const zipBuffer = createZipArchive(archiveFiles);
+        const zipFileName = `${folderName}-requirements.zip`;
+
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader("Content-Disposition", `attachment; filename="${zipFileName}"`);
+        return res.send(zipBuffer);
+      })
+      .catch((storageErr) => {
+        console.log("Application Folder Download Error:", storageErr.message);
+        return res.status(500).json({
+          message: "Failed to download requirement folder",
+        });
       });
-    }
-
-    const zipBuffer = createZipArchive(archiveFiles);
-    const zipFileName = `${folderName}-requirements.zip`;
-
-    res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", `attachment; filename="${zipFileName}"`);
-    return res.send(zipBuffer);
   });
 };
 
@@ -1891,12 +1927,7 @@ const deleteApplication = (req, res) => {
       }
 
       uploadedFiles.forEach((file) => {
-        const absoluteFilePath = path.resolve(uploadRoot, file.path);
-        const safeUploadRoot = `${path.resolve(uploadRoot)}${path.sep}`;
-
-        if (absoluteFilePath.startsWith(safeUploadRoot)) {
-          fs.unlink(absoluteFilePath, () => {});
-        }
+        storage.removeObject(file.path);
       });
 
       res.json({
@@ -1970,7 +2001,35 @@ app.delete("/api/applications/:id", deleteApplication);
 app.get("/api/admin/dashboard-stats", getAdminDashboardStats);
 app.get("/api/admin/recent-activity", getAdminRecentActivity);
 
-app.use("/uploads", express.static(uploadRoot));
+// Avatars and other uploads used to be served straight off disk. They now live
+// in Supabase Storage, so the same public URL shape is kept and proxied through
+// instead — that way the client's getUploadUrl() needs no change.
+app.get("/uploads/*objectPath", (req, res) => {
+  const objectPath = Array.isArray(req.params.objectPath)
+    ? req.params.objectPath.join("/")
+    : req.params.objectPath || "";
+
+  if (!objectPath || objectPath.includes("..")) {
+    return res.status(404).json({ message: "File not found" });
+  }
+
+  return storage
+    .getObject(objectPath)
+    .then((object) => {
+      if (!object) {
+        return res.status(404).json({ message: "File not found" });
+      }
+
+      res.setHeader("Content-Type", object.contentType);
+      res.setHeader("Cache-Control", "public, max-age=300");
+      return res.send(object.buffer);
+    })
+    .catch((storageErr) => {
+      console.log("Upload Fetch Error:", storageErr.message);
+      return res.status(500).json({ message: "Failed to load file" });
+    });
+});
+
 app.use(express.static(clientDistPath));
 app.get(/.*/, serveClientApp, (req, res) => {
   res.status(404).json({
@@ -1978,6 +2037,13 @@ app.get(/.*/, serveClientApp, (req, res) => {
   });
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`Server running on http://${HOST}:${PORT}`);
-});
+// Vercel imports this module and drives it as a serverless function, so the
+// listener only starts when the file is run directly (local dev, or any plain
+// Node host).
+if (require.main === module) {
+  app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
+  });
+}
+
+module.exports = app;
