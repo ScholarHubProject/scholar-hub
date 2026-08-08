@@ -184,7 +184,7 @@ const ManageScholarship = () => {
           <span style={eyebrowStyle}>Admin Section</span>
           <h1 style={titleStyle}>Scholarship Management</h1>
           <p style={mutedTextStyle}>
-            Create, update, and organize scholarship programs stored in MySQL.
+            Create, update, and organize scholarship programs.
           </p>
         </header>
 

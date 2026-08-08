@@ -362,7 +362,7 @@ const ManageApplicants = () => {
           <span style={eyebrowStyle}>Applicant Review</span>
           <h1 style={titleStyle}>Manage Applicants</h1>
           <p style={mutedTextStyle}>
-            Review student applications and update approval status in MySQL.
+            Review student applications and update approval status.
           </p>
         </header>
 

@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const mysql = require("mysql2");
+const { Pool, types } = require("pg");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
@@ -13,7 +13,8 @@ const clientDistPath = path.join(__dirname, "..", "client", "dist");
 const uploadRoot = path.join(__dirname, "uploads");
 const applicationUploadDir = path.join(uploadRoot, "applications");
 const avatarUploadDir = path.join(uploadRoot, "avatars");
-const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL;
+const databaseUrl =
+  process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
 const databaseUrlConfig = (() => {
   if (!databaseUrl) return {};
 
@@ -33,29 +34,26 @@ const databaseUrlConfig = (() => {
   }
 })();
 const DATABASE =
-  process.env.DB_NAME ||
-  process.env.MYSQLDATABASE ||
-  databaseUrlConfig.database ||
-  "scholarhub_db";
+  process.env.DB_NAME || process.env.PGDATABASE || databaseUrlConfig.database || "postgres";
+// Supabase hands out a managed database; every table lives in the "public" schema.
+const DB_SCHEMA = process.env.DB_SCHEMA || "public";
 const dbConfig = {
-  host: process.env.DB_HOST || process.env.MYSQLHOST || databaseUrlConfig.host,
-  port: Number(process.env.DB_PORT || process.env.MYSQLPORT || databaseUrlConfig.port) || 3306,
-  user: process.env.DB_USER || process.env.MYSQLUSER || databaseUrlConfig.user,
-  password: process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || databaseUrlConfig.password,
+  host: process.env.DB_HOST || process.env.PGHOST || databaseUrlConfig.host,
+  port: Number(process.env.DB_PORT || process.env.PGPORT || databaseUrlConfig.port) || 5432,
+  user: process.env.DB_USER || process.env.PGUSER || databaseUrlConfig.user,
+  password: process.env.DB_PASSWORD || process.env.PGPASSWORD || databaseUrlConfig.password,
   database: DATABASE,
-  multipleStatements: true,
-  waitForConnections: true,
-  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 5,
-  queueLimit: 0,
-  connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS) || 20000,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
+  max: Number(process.env.DB_CONNECTION_LIMIT) || 5,
+  connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS) || 20000,
+  idleTimeoutMillis: 30000,
+  keepAlive: true,
 };
 
-if (process.env.DB_SSL === "true" || process.env.MYSQL_SSL === "true") {
-  dbConfig.ssl = {
-    rejectUnauthorized: false,
-  };
+// Supabase always requires TLS. Set DB_SSL=false only for a plain local Postgres.
+if (process.env.DB_SSL === "false") {
+  dbConfig.ssl = false;
+} else {
+  dbConfig.ssl = { rejectUnauthorized: false };
 }
 const EMPTY_DASHBOARD_STATS = {
   total_applicants: 0,
@@ -293,9 +291,83 @@ const createZipArchive = (files) => {
   return Buffer.concat([localData, centralDirectory, endRecord]);
 };
 
-const db = mysql.createPool({
-  ...dbConfig,
+// Postgres DATE columns come back as plain "YYYY-MM-DD" strings instead of JS
+// Date objects, so a deadline never shifts a day from timezone conversion.
+types.setTypeParser(1082, (value) => value);
+
+const pool = new Pool(dbConfig);
+
+pool.on("error", (err) => {
+  console.log("Idle Postgres client error:", err.message);
 });
+
+// Postgres uses $1, $2, ... where MySQL used ?. No SQL in this file contains a
+// literal "?", so a straight positional swap is safe.
+const toPositionalPlaceholders = (sql) => {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${(index += 1)}`);
+};
+
+const isInsertStatement = (sql) => /^\s*insert\s+into/i.test(sql);
+
+// Mirrors the mysql2 callback API the route handlers were written against:
+// callback(err, rows) where rows also carries .affectedRows and .insertId.
+const db = {
+  query(sql, params, callback) {
+    const done = typeof params === "function" ? params : callback;
+    const values = typeof params === "function" ? [] : params || [];
+    const wantsInsertId = isInsertStatement(sql) && !/returning/i.test(sql);
+    const finalSql = wantsInsertId
+      ? `${sql.trimEnd().replace(/;\s*$/, "")} RETURNING id`
+      : sql;
+
+    pool.query(toPositionalPlaceholders(finalSql), values, (err, result) => {
+      if (err) {
+        return done(err);
+      }
+
+      const rows = result.rows || [];
+      rows.affectedRows = result.rowCount || 0;
+
+      if (wantsInsertId) {
+        rows.insertId = rows[0]?.id;
+      }
+
+      return done(null, rows);
+    });
+  },
+};
+
+// Postgres SQLSTATE codes plus Node socket errors that mean "database unreachable".
+const DB_CONNECTION_ERROR_CODES = [
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "28P01", // invalid_password
+  "28000", // invalid_authorization_specification
+  "3D000", // invalid_catalog_name
+  "53300", // too_many_connections
+  "57P01", // admin_shutdown
+  "57P03", // cannot_connect_now
+  "08006", // connection_failure
+  "08001", // sqlclient_unable_to_establish_sqlconnection
+];
+
+const DUPLICATE_KEY_CODE = "23505";
+
+const isDbConnectionError = (err) =>
+  Boolean(err) && DB_CONNECTION_ERROR_CODES.includes(err.code);
+
+const dbUnavailableMessage =
+  "The server cannot reach the database right now. Please try again later.";
+
+// MySQL compared VARCHARs case-insensitively, so "Ace@Gmail.com" used to match
+// "ace@gmail.com" on login. Postgres compares exactly, so emails are stored and
+// matched in lower case to keep existing accounts working.
+const normalizeEmail = (value) => (value || "").trim().toLowerCase();
 
 const ensureColumn = (columnName, definition) => {
   const checkSql = `
@@ -304,7 +376,7 @@ const ensureColumn = (columnName, definition) => {
     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = ?
   `;
 
-  db.query(checkSql, [DATABASE, columnName], (err, rows) => {
+  db.query(checkSql, [DB_SCHEMA, columnName], (err, rows) => {
     if (err) {
       console.log(`Column check failed for ${columnName}:`, err);
       return;
@@ -327,7 +399,7 @@ const ensureScholarshipColumn = (columnName, definition) => {
     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'scholarships' AND COLUMN_NAME = ?
   `;
 
-  db.query(checkSql, [DATABASE, columnName], (err, rows) => {
+  db.query(checkSql, [DB_SCHEMA, columnName], (err, rows) => {
     if (err) {
       console.log(`Scholarship column check failed for ${columnName}:`, err);
       return;
@@ -353,7 +425,7 @@ const ensureAnnouncementColumn = (columnName, definition) => {
     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'announcements' AND COLUMN_NAME = ?
   `;
 
-  db.query(checkSql, [DATABASE, columnName], (err, rows) => {
+  db.query(checkSql, [DB_SCHEMA, columnName], (err, rows) => {
     if (err) {
       console.log(`Announcement column check failed for ${columnName}:`, err);
       return;
@@ -379,7 +451,7 @@ const ensureApplicationColumn = (columnName, definition) => {
     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'applications' AND COLUMN_NAME = ?
   `;
 
-  db.query(checkSql, [DATABASE, columnName], (err, rows) => {
+  db.query(checkSql, [DB_SCHEMA, columnName], (err, rows) => {
     if (err) {
       console.log(`Application column check failed for ${columnName}:`, err);
       return;
@@ -401,7 +473,7 @@ const ensureApplicationColumn = (columnName, definition) => {
 const createScholarshipsTable = () => {
   const sql = `
     CREATE TABLE IF NOT EXISTS scholarships (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       scholarship_code VARCHAR(80),
       title VARCHAR(180) NOT NULL,
       description TEXT NOT NULL,
@@ -433,7 +505,7 @@ const createScholarshipsTable = () => {
 const createApplicationsTable = () => {
   const sql = `
     CREATE TABLE IF NOT EXISTS applications (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       user_id INT,
       student_name VARCHAR(150) NOT NULL,
       school_id_number VARCHAR(80),
@@ -484,7 +556,7 @@ const createApplicationsTable = () => {
 const createAnnouncementsTable = () => {
   const sql = `
     CREATE TABLE IF NOT EXISTS announcements (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       title VARCHAR(180) NOT NULL,
       content TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -507,10 +579,10 @@ const seedDefaultAdmin = () => {
   const sql = `
     INSERT INTO users (fullname, email, password, role)
     VALUES ('Admin User', 'admin@scholarhub.com', 'admin123', 'Admin')
-    ON DUPLICATE KEY UPDATE
-      fullname = VALUES(fullname),
-      password = VALUES(password),
-      role = VALUES(role)
+    ON CONFLICT (email) DO UPDATE SET
+      fullname = EXCLUDED.fullname,
+      password = EXCLUDED.password,
+      role = EXCLUDED.role
   `;
 
   db.query(sql, (err) => {
@@ -523,65 +595,51 @@ const seedDefaultAdmin = () => {
   });
 };
 
+// Supabase provisions the database for us, so there is no CREATE DATABASE step:
+// we connect straight to it and only make sure the tables exist.
 const initializeDatabase = () => {
-  const escapedDatabase = mysql.escapeId(DATABASE);
+  const createUsersTable = `
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      fullname VARCHAR(150) NOT NULL,
+      school_id_number VARCHAR(80),
+      email VARCHAR(150) NOT NULL UNIQUE,
+      course_year VARCHAR(120),
+      contact_number VARCHAR(50),
+      avatar_path VARCHAR(255),
+      password VARCHAR(255) NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'Student',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `;
 
-  db.query(`CREATE DATABASE IF NOT EXISTS ${escapedDatabase}`, (dbErr) => {
-    if (dbErr) {
-      console.log("Database Create Error:", dbErr);
+  db.query(createUsersTable, (tableErr) => {
+    if (tableErr) {
+      console.log("Users Table Create Error:", tableErr);
       return;
     }
 
-    db.query(`USE ${escapedDatabase}`, (useErr) => {
-      if (useErr) {
-        console.log("Database Select Error:", useErr);
-        return;
-      }
+    ensureColumn("course_year", "VARCHAR(120)");
+    ensureColumn("contact_number", "VARCHAR(50)");
+    ensureColumn("school_id_number", "VARCHAR(80)");
+    ensureColumn("avatar_path", "VARCHAR(255)");
+    ensureColumn("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+    createScholarshipsTable();
+    createApplicationsTable();
+    createAnnouncementsTable();
+    seedDefaultAdmin();
 
-const createUsersTable = `
-        CREATE TABLE IF NOT EXISTS users (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          fullname VARCHAR(150) NOT NULL,
-          school_id_number VARCHAR(80),
-          email VARCHAR(150) NOT NULL UNIQUE,
-          course_year VARCHAR(120),
-          contact_number VARCHAR(50),
-          avatar_path VARCHAR(255),
-          password VARCHAR(255) NOT NULL,
-          role VARCHAR(50) NOT NULL DEFAULT 'Student',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `;
-
-      db.query(createUsersTable, (tableErr) => {
-        if (tableErr) {
-          console.log("Users Table Create Error:", tableErr);
-          return;
-        }
-
-        ensureColumn("course_year", "VARCHAR(120)");
-        ensureColumn("contact_number", "VARCHAR(50)");
-        ensureColumn("school_id_number", "VARCHAR(80)");
-        ensureColumn("avatar_path", "VARCHAR(255)");
-        ensureColumn("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
-        createScholarshipsTable();
-        createApplicationsTable();
-        createAnnouncementsTable();
-        seedDefaultAdmin();
-
-        console.log("MySQL Connected and tables ready");
-      });
-    });
+    console.log("Postgres connected and tables ready");
   });
 };
 
-db.getConnection((err, connection) => {
+pool.connect((err, connection, release) => {
   if (err) {
-    console.log("MySQL Error:", err);
+    console.log("Postgres Error:", err);
     return;
   }
 
-  connection.release();
+  release();
   initializeDatabase();
 });
 
@@ -594,12 +652,36 @@ app.get("/api/test", (req, res) => {
     if (err) {
       console.log("Database Health Check Error:", err);
       return res.status(500).json({
-        message: "Backend is running, but MySQL is not reachable",
+        message: "Backend is running, but the database is not reachable",
         error: err.code || err.message,
       });
     }
 
-    return res.json({ message: "Backend and MySQL are working" });
+    return res.json({ message: "Backend and database are working" });
+  });
+});
+
+app.get("/api/db-status", (req, res) => {
+  const connectionInfo = {
+    host: dbConfig.host || "(not set)",
+    port: dbConfig.port,
+    user: dbConfig.user || "(not set)",
+    database: dbConfig.database,
+    ssl: Boolean(dbConfig.ssl),
+    passwordProvided: Boolean(dbConfig.password),
+    configSource: databaseUrl ? "DATABASE_URL" : "individual DB_* variables",
+  };
+
+  db.query("SELECT 1 AS ok", (err) => {
+    if (err) {
+      return res.status(503).json({
+        connected: false,
+        connectionInfo,
+        error: err.code || err.message,
+      });
+    }
+
+    return res.json({ connected: true, connectionInfo });
   });
 });
 
@@ -619,7 +701,7 @@ const registerUser = (req, res) => {
 
   const cleanFullname = fullname?.trim();
   const cleanSchoolIdNumber = (schoolIdNumber || school_id_number || "").trim();
-  const cleanEmail = email?.trim();
+  const cleanEmail = normalizeEmail(email);
   const cleanPassword = password?.trim();
   const cleanCourseYear = (courseYear || course_year || "").trim();
   const cleanContactNumber = (contactNumber || contact_number || "").trim();
@@ -649,13 +731,20 @@ const registerUser = (req, res) => {
     ],
     (err, result) => {
       if (err) {
-        if (err.code === "ER_DUP_ENTRY") {
+        if (err.code === DUPLICATE_KEY_CODE) {
           return res.status(409).json({
             message: "Email already registered",
           });
         }
 
         console.log("Registration Error:", err);
+
+        if (isDbConnectionError(err)) {
+          return res.status(503).json({
+            message: dbUnavailableMessage,
+            error: err.code,
+          });
+        }
 
         return res.status(500).json({
           message: "Registration Failed",
@@ -683,7 +772,7 @@ const registerUser = (req, res) => {
 const loginUser = (req, res) => {
   const { email, password, role } = req.body;
 
-  const cleanEmail = email?.trim();
+  const cleanEmail = normalizeEmail(email);
   const cleanPassword = password?.trim();
   const cleanRole = role?.trim();
 
@@ -697,16 +786,25 @@ const loginUser = (req, res) => {
   const sql = `
     SELECT id, fullname, school_id_number, email, course_year, contact_number, avatar_path, password, role
     FROM users
-    WHERE email = ?
+    WHERE LOWER(email) = ?
   `;
 
   db.query(sql, [cleanEmail], (err, result) => {
     if (err) {
       console.log("Login Error:", err);
 
+      if (isDbConnectionError(err)) {
+        return res.status(503).json({
+          success: false,
+          message: dbUnavailableMessage,
+          error: err.code,
+        });
+      }
+
       return res.status(500).json({
         success: false,
         message: "Login Failed",
+        error: err.code || err.message,
       });
     }
 
@@ -764,7 +862,7 @@ const updateUserProfile = (req, res) => {
     contact_number,
   } = req.body;
 
-  const cleanEmail = email?.trim();
+  const cleanEmail = normalizeEmail(email);
   const cleanFullname = (fullname || name || "").trim();
   const cleanSchoolIdNumber = (schoolIdNumber || school_id_number || "").trim();
   const cleanCourseYear = (courseYear || course_year || "").trim();
@@ -781,7 +879,7 @@ const updateUserProfile = (req, res) => {
   const sql = `
     UPDATE users
     SET fullname = ?, school_id_number = ?, course_year = ?, contact_number = ?
-    WHERE ${hasUserId ? "id = ?" : "email = ?"}
+    WHERE ${hasUserId ? "id = ?" : "LOWER(email) = ?"}
   `;
 
   db.query(
@@ -803,14 +901,14 @@ const updateUserProfile = (req, res) => {
 
       if (result.affectedRows === 0) {
         return res.status(404).json({
-          message: "User not found in MySQL. Please log out and log in again.",
+          message: "User not found. Please log out and log in again.",
         });
       }
 
       const applicationSql = `
         UPDATE applications
         SET student_name = ?, school_id_number = ?, course_year = ?, contact_number = ?
-        WHERE email = ?
+        WHERE LOWER(email) = ?
       `;
 
       db.query(
@@ -849,7 +947,7 @@ const updateUserAvatar = (req, res) => {
   const { id, email } = req.body || {};
   const cleanId = Number(id);
   const hasUserId = Number.isInteger(cleanId) && cleanId > 0;
-  const cleanEmail = email?.trim();
+  const cleanEmail = normalizeEmail(email);
   const uploadedFile = req.file;
 
   const cleanupUploadedAvatar = () => {
@@ -866,7 +964,7 @@ const updateUserAvatar = (req, res) => {
   }
 
   const relativeAvatarPath = path.relative(uploadRoot, uploadedFile.path).split(path.sep).join("/");
-  const whereClause = hasUserId ? "id = ?" : "email = ?";
+  const whereClause = hasUserId ? "id = ?" : "LOWER(email) = ?";
   const queryValue = hasUserId ? cleanId : cleanEmail;
   const lookupSql = `
     SELECT avatar_path
@@ -887,7 +985,7 @@ const updateUserAvatar = (req, res) => {
     if (rows.length === 0) {
       cleanupUploadedAvatar();
       return res.status(404).json({
-        message: "User not found in MySQL. Please log out and log in again.",
+        message: "User not found. Please log out and log in again.",
       });
     }
 
@@ -1238,7 +1336,7 @@ const createApplication = (req, res) => {
 
   const cleanStudentName = (studentName || student_name || "").trim();
   const cleanSchoolIdNumber = (schoolIdNumber || school_id_number || "").trim();
-  const cleanEmail = email?.trim();
+  const cleanEmail = normalizeEmail(email);
   const cleanCourseYear = (courseYear || course_year || "").trim();
   const cleanContactNumber = (contactNumber || contact_number || "").trim();
   const cleanScholarshipTitle = (scholarshipTitle || scholarship_title || "").trim();
@@ -1284,7 +1382,7 @@ const createApplication = (req, res) => {
     const syncSql = `
       UPDATE users
       SET fullname = ?, school_id_number = ?, email = ?, course_year = ?, contact_number = ?
-      WHERE ${hasUserId ? "id = ?" : "email = ?"}
+      WHERE ${hasUserId ? "id = ?" : "LOWER(email) = ?"}
     `;
 
     db.query(
@@ -1466,7 +1564,7 @@ const getApplications = (req, res) => {
 
 const getStudentApplications = (req, res) => {
   const cleanUserId = Number(req.query.userId || req.query.user_id);
-  const cleanEmail = req.query.email?.trim();
+  const cleanEmail = normalizeEmail(req.query.email);
 
   if (!cleanEmail && !(Number.isInteger(cleanUserId) && cleanUserId > 0)) {
     return res.status(400).json({
@@ -1475,7 +1573,7 @@ const getStudentApplications = (req, res) => {
   }
 
   const hasUserId = Number.isInteger(cleanUserId) && cleanUserId > 0;
-  const whereClause = hasUserId ? "a.user_id = ?" : "a.email = ?";
+  const whereClause = hasUserId ? "a.user_id = ?" : "LOWER(a.email) = ?";
   const queryValue = hasUserId ? cleanUserId : cleanEmail;
 
   const sql = `
@@ -1554,8 +1652,8 @@ const getAdminDashboardStats = (req, res) => {
       (SELECT COUNT(*) FROM applications WHERE LOWER(TRIM(status)) = 'approved') AS approved_students,
       (SELECT COUNT(*) FROM applications WHERE LOWER(TRIM(status)) = 'pending review') AS pending_applications,
       (SELECT COUNT(*) FROM applications WHERE LOWER(TRIM(status)) = 'rejected') AS disapproved_applications,
-      (SELECT COUNT(*) FROM applications WHERE LOWER(TRIM(status)) = 'approved' AND created_at < DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH)) AS old_scholars,
-      (SELECT COUNT(*) FROM applications WHERE LOWER(TRIM(status)) = 'approved' AND created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH)) AS new_scholars,
+      (SELECT COUNT(*) FROM applications WHERE LOWER(TRIM(status)) = 'approved' AND created_at < CURRENT_DATE - INTERVAL '6 months') AS old_scholars,
+      (SELECT COUNT(*) FROM applications WHERE LOWER(TRIM(status)) = 'approved' AND created_at >= CURRENT_DATE - INTERVAL '6 months') AS new_scholars,
       (SELECT COUNT(*) FROM scholarships) AS scholarships_posted
   `;
 

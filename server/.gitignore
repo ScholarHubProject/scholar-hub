@@ -1,0 +1,13 @@
+# Never commit real credentials. .env.example is the safe template.
+.env
+.env.local
+.env.*.local
+
+node_modules
+
+# Uploaded student files stay local
+uploads/applications
+uploads/avatars
+
+*.log
+.DS_Store

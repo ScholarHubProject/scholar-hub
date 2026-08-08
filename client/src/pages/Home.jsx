@@ -264,7 +264,7 @@ const Home = () => {
         courseYear: user?.courseYear || updatedUser.courseYear || "",
         contactNumber: user?.contactNumber || updatedUser.contactNumber || "",
       });
-      setProfileMessage("Profile updated and synced to MySQL.");
+      setProfileMessage("Profile updated and synced.");
     } catch (error) {
       console.log("Profile update error:", error);
       setProfileMessage(error.response?.data?.message || "Unable to update profile.");
