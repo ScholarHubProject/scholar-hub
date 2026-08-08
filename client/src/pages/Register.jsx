@@ -88,6 +88,15 @@ const Register = () => {
       }, 1200);
     } catch (error) {
       console.log("Registration error:", error);
+
+      if (error.response?.status === 409) {
+        alert(
+          error.response?.data?.message ||
+            `The email ${formData.email.trim()} is already registered. Please log in instead or sign up with a different email address.`
+        );
+        return;
+      }
+
       alert(error.response?.data?.message || "Registration Failed");
     }
   };

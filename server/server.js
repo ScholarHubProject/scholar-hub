@@ -358,8 +358,14 @@ const DB_CONNECTION_ERROR_CODES = [
 
 const DUPLICATE_KEY_CODE = "23505";
 
+// The Supabase pooler reports "max clients reached" as a generic XX000, so it
+// has to be matched on the message instead of the code.
+const isPoolerBusyError = (err) =>
+  Boolean(err) && /max clients reached/i.test(err.message || "");
+
 const isDbConnectionError = (err) =>
-  Boolean(err) && DB_CONNECTION_ERROR_CODES.includes(err.code);
+  Boolean(err) &&
+  (DB_CONNECTION_ERROR_CODES.includes(err.code) || isPoolerBusyError(err));
 
 const dbUnavailableMessage =
   "The server cannot reach the database right now. Please try again later.";
@@ -733,7 +739,7 @@ const registerUser = (req, res) => {
       if (err) {
         if (err.code === DUPLICATE_KEY_CODE) {
           return res.status(409).json({
-            message: "Email already registered",
+            message: `The email ${cleanEmail} is already registered. Please log in instead or sign up with a different email address.`,
           });
         }
 
@@ -808,10 +814,12 @@ const loginUser = (req, res) => {
       });
     }
 
+    // Unknown email and wrong password give the same reply so the login page
+    // can show one clear "wrong email or password" text either way.
     if (result.length === 0) {
-      return res.status(404).json({
+      return res.status(401).json({
         success: false,
-        message: "You are not registered yet",
+        message: "Incorrect email or password. Please try again.",
       });
     }
 
@@ -820,7 +828,7 @@ const loginUser = (req, res) => {
     if (user.password !== cleanPassword) {
       return res.status(401).json({
         success: false,
-        message: "Invalid email or password",
+        message: "Incorrect email or password. Please try again.",
       });
     }
 
