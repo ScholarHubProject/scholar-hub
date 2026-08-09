@@ -130,13 +130,19 @@ database/schema.sql    full schema, run once in Supabase
 
 ## Known gaps
 
-- `client/src/components/UserProfileMenu.jsx` is dead code — nothing imports it;
-  `Navbar.jsx` has the profile menu that actually renders. It is safe to delete.
-- Several pages call `setState` synchronously inside `useEffect`, which the
-  React 19 lint rule flags. Pre-existing; `npm run lint` lists them.
 - `Navbar.jsx` (2100 lines) and `ApplicationForm.jsx` (970 lines) are large
   enough to be worth splitting.
-- Student uploads that were committed to git before this cleanup are still
-  present in the repository history, even though they are no longer tracked.
-  Removing them for good needs a history rewrite (`git filter-repo`) and a
-  force push.
+- Emails are sent from a free Outlook address through Brevo, which lands in
+  spam more often than a verified domain would. Verifying a domain in Brevo
+  and changing `MAIL_FROM` is the fix, whenever a domain is available.
+- Student uploads and the old `admin123` password that were committed to git
+  before this cleanup are still present in the repository history, even though
+  they are no longer tracked. Removing them for good needs a history rewrite
+  (`git filter-repo`) and a force push — worth doing only if the repository is
+  ever made public.
+
+Three `react-hooks/set-state-in-effect` disables exist in `Notifications.jsx`,
+`ScholarshipPage.jsx` and `TrackStatus.jsx`. They are deliberate: those loaders
+set no state synchronously on mount, but the rule only checks whether a called
+function contains a `setState` anywhere, so it cannot tell. Each one carries a
+comment saying so.

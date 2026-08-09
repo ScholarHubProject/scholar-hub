@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import api from "../api";
 import {
   buttonPrimaryStyle,
@@ -37,24 +37,28 @@ const Announcements = () => {
     content: "",
   });
 
-  const loadAnnouncements = async () => {
-    setLoading(true);
-
-    try {
-      const response = await api.get("/announcements");
-      setAnnouncements(Array.isArray(response.data) ? response.data : []);
-      setNotice(null);
-    } catch (error) {
-      console.log("Announcements load error:", error);
-      setNotice("Failed to load announcements");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // State is only set from the promise callbacks. `loading` already starts as
+  // true, so setting it again on mount would just queue a redundant render
+  // while the effect is still running.
+  const loadAnnouncements = useCallback(
+    () =>
+      api
+        .get("/announcements")
+        .then((response) => {
+          setAnnouncements(Array.isArray(response.data) ? response.data : []);
+          setNotice(null);
+        })
+        .catch((error) => {
+          console.log("Announcements load error:", error);
+          setNotice("Failed to load announcements");
+        })
+        .finally(() => setLoading(false)),
+    []
+  );
 
   useEffect(() => {
     loadAnnouncements();
-  }, []);
+  }, [loadAnnouncements]);
 
   const updateField = (field, value) => {
     setFormData((current) => ({

@@ -25,27 +25,31 @@ const Reports = () => {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
 
-  const loadReportData = useCallback(async () => {
-    setLoading(true);
-
-    try {
-      const response = await api.get("/admin/dashboard-stats");
-      setStats({
-        total_applicants: response.data?.total_applicants || 0,
-        approved_students: response.data?.approved_students || 0,
-        pending_applications: response.data?.pending_applications || 0,
-        disapproved_applications: response.data?.disapproved_applications || 0,
-        old_scholars: response.data?.old_scholars || 0,
-        new_scholars: response.data?.new_scholars || 0,
-      });
-      setNotice(null);
-    } catch (error) {
-      console.log("Reports load error:", error);
-      setNotice("Failed to load report data");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // State is only set from the promise callbacks. `loading` already starts as
+  // true, so setting it again on mount would just queue a redundant render
+  // while the effect is still running.
+  const loadReportData = useCallback(
+    () =>
+      api
+        .get("/admin/dashboard-stats")
+        .then((response) => {
+          setStats({
+            total_applicants: response.data?.total_applicants || 0,
+            approved_students: response.data?.approved_students || 0,
+            pending_applications: response.data?.pending_applications || 0,
+            disapproved_applications: response.data?.disapproved_applications || 0,
+            old_scholars: response.data?.old_scholars || 0,
+            new_scholars: response.data?.new_scholars || 0,
+          });
+          setNotice(null);
+        })
+        .catch((error) => {
+          console.log("Reports load error:", error);
+          setNotice("Failed to load report data");
+        })
+        .finally(() => setLoading(false)),
+    []
+  );
 
   useEffect(() => {
     loadReportData();

@@ -51,7 +51,6 @@ const Home = () => {
   const avatarSrc = getUploadUrl(avatarPreview || user?.avatarPath || user?.avatar_path);
   const roleValue = user?.role || "Student";
   const emailValue = user?.email || "Not available";
-  const schoolIdValue = user?.schoolIdNumber || user?.school_id_number || "Not available";
   const accentColor = settings.accent === "amber" ? "#d97706" : colors.primary;
 
   const syncStoredUser = (updates) => {

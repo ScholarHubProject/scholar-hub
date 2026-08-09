@@ -43,12 +43,15 @@ const ScholarshipPage = () => {
 
     syncingRef.current = true;
 
-    if (initial) {
-      setLoading(true);
-    }
-    setRefreshing(true);
-    if (!silent) {
-      setError("");
+    // The mount call sets nothing synchronously: `loading` already starts as
+    // true, `refreshing` as false and `error` as empty, so touching them here
+    // would only queue a redundant render while the effect is still running.
+    if (!initial) {
+      setRefreshing(true);
+
+      if (!silent) {
+        setError("");
+      }
     }
 
     try {
@@ -69,6 +72,10 @@ const ScholarshipPage = () => {
   }, []);
 
   useEffect(() => {
+    // With initial: true this call sets no state synchronously; everything it
+    // touches happens after the request resolves. The rule cannot see that,
+    // because it only checks whether the function contains a setState at all.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadScholarships({ initial: true });
 
     const intervalId = window.setInterval(() => {
