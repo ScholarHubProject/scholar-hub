@@ -858,15 +858,30 @@ const initializeDatabase = () => {
   });
 };
 
-pool.connect((err, connection, release) => {
-  if (err) {
-    console.log("Postgres Error:", err);
-    return;
-  }
+// Schema setup is roughly forty round trips to Postgres: six CREATE TABLE
+// statements plus thirty-one INFORMATION_SCHEMA lookups for individual columns.
+// Running that on boot is fine for a long-lived server, but this app runs as a
+// serverless function, where "boot" happens on every cold start — so it was
+// paying several seconds of schema checks before it could answer a login.
+//
+// It is opt-in instead. The tables are created by database/schema.sql, and this
+// only needs to run after adding a column to the schema:
+//
+//   DB_AUTO_MIGRATE=true    on the next deploy, or
+//   npm run db:setup        from the server directory
+const shouldAutoMigrate = process.env.DB_AUTO_MIGRATE === "true";
 
-  release();
-  initializeDatabase();
-});
+if (shouldAutoMigrate) {
+  pool.connect((err, connection, release) => {
+    if (err) {
+      console.log("Postgres Error:", err);
+      return;
+    }
+
+    release();
+    initializeDatabase();
+  });
+}
 
 app.get("/", serveClientApp, (req, res) => {
   res.status(200).send("Scholar Hub Backend Running");
