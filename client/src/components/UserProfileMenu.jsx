@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import api, { clearSession, getStoredUser } from "../api";
 import { getSavedSettings, saveSettings } from "../settings";
 import { eyebrowStyle, mutedTextStyle } from "../sharedStyles";
 
 const getCurrentUser = () => {
   try {
-    return JSON.parse(localStorage.getItem("currentUser"));
+    return getStoredUser();
   } catch {
     return null;
   }
@@ -19,6 +20,14 @@ const UserProfileMenu = () => {
   const [triggerHover, setTriggerHover] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
   const [settings, setSettings] = useState(getSavedSettings);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordNotice, setPasswordNotice] = useState(null);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
   const menuRef = useRef(null);
   const modalRef = useRef(null);
   const user = getCurrentUser();
@@ -78,11 +87,48 @@ const UserProfileMenu = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("currentUser");
+    clearSession();
     setMenuOpen(false);
     setProfileOpen(false);
     setSettingsOpen(false);
     navigate("/login");
+  };
+
+  const openPasswordForm = () => {
+    setMenuOpen(false);
+    setProfileOpen(false);
+    setSettingsOpen(false);
+    setPasswordOpen(true);
+    setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    setPasswordNotice(null);
+  };
+
+  const submitPasswordChange = async (event) => {
+    event.preventDefault();
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordNotice({ type: "error", message: "The two new passwords do not match." });
+      return;
+    }
+
+    setPasswordSaving(true);
+
+    try {
+      const response = await api.post("/password/change", {
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+
+      setPasswordNotice({ type: "success", message: response.data.message });
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (error) {
+      setPasswordNotice({
+        type: "error",
+        message: error.response?.data?.message || "Failed to change password.",
+      });
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const handleToggleChange = (key) => (event) => {
@@ -141,6 +187,15 @@ const UserProfileMenu = () => {
             </button>
             <button
               type="button"
+              style={menuItemStyle(hoveredItem === "password")}
+              onMouseEnter={() => setHoveredItem("password")}
+              onMouseLeave={() => setHoveredItem(null)}
+              onClick={openPasswordForm}
+            >
+              Change Password
+            </button>
+            <button
+              type="button"
               style={logoutItemStyle(hoveredItem === "logout")}
               onMouseEnter={() => setHoveredItem("logout")}
               onMouseLeave={() => setHoveredItem(null)}
@@ -151,6 +206,73 @@ const UserProfileMenu = () => {
           </div>
         )}
       </div>
+
+      {passwordOpen && (
+        <div style={overlayStyle} role="presentation">
+          <div style={passwordModalStyle}>
+            <div style={modalHeaderStyle}>
+              <div style={modalHeaderCopyStyle}>
+                <span style={eyebrowStyle}>Security</span>
+                <h2 style={modalTitleStyle}>Change Password</h2>
+                <p style={mutedTextStyle}>
+                  Use at least 8 characters, including a letter and a number.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPasswordOpen(false)}
+                style={closeButtonStyle}
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={submitPasswordChange} style={passwordFormStyle}>
+              {[
+                ["Current password", "currentPassword"],
+                ["New password", "newPassword"],
+                ["Confirm new password", "confirmPassword"],
+              ].map(([label, field]) => (
+                <label key={field} style={profileFieldStyle}>
+                  <span style={profileFieldLabelStyle}>{label}</span>
+                  <input
+                    type="password"
+                    required
+                    value={passwordForm[field]}
+                    onChange={(event) => {
+                      const { value } = event.target;
+                      setPasswordForm((current) => ({ ...current, [field]: value }));
+                      setPasswordNotice(null);
+                    }}
+                    style={profileInputStyle}
+                  />
+                </label>
+              ))}
+
+              {passwordNotice && (
+                <p
+                  style={
+                    passwordNotice.type === "success"
+                      ? passwordSuccessStyle
+                      : passwordErrorStyle
+                  }
+                >
+                  {passwordNotice.message}
+                </p>
+              )}
+
+              <div style={profileFooterStyle}>
+                <p style={settingsHintStyle}>
+                  You stay signed in on this device after changing your password.
+                </p>
+                <button type="submit" style={primaryActionStyle} disabled={passwordSaving}>
+                  {passwordSaving ? "Saving..." : "Change password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {(profileOpen || settingsOpen) && (
         <div style={overlayStyle} role="presentation">
@@ -507,6 +629,38 @@ const modalStyle = {
   border: "1px solid #fed7aa",
   boxShadow: "0 28px 70px rgba(0,0,0,0.2)",
   padding: "clamp(14px, 4vw, 18px)",
+};
+
+const passwordModalStyle = {
+  ...modalStyle,
+  width: "min(440px, 100%)",
+};
+
+const passwordFormStyle = {
+  display: "grid",
+  gap: "14px",
+};
+
+const passwordMessageBaseStyle = {
+  margin: 0,
+  padding: "10px 12px",
+  borderRadius: "10px",
+  fontSize: "14px",
+  fontWeight: "600",
+};
+
+const passwordErrorStyle = {
+  ...passwordMessageBaseStyle,
+  background: "#fee2e2",
+  color: "#b91c1c",
+  border: "1px solid #fecaca",
+};
+
+const passwordSuccessStyle = {
+  ...passwordMessageBaseStyle,
+  background: "#dcfce7",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
 };
 
 const modalHeaderStyle = {

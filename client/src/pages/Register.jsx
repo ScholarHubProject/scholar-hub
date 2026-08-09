@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import api from "../api";
+import api, { saveSession } from "../api";
 import {
   authCardStyle,
   authLogoStyle,
@@ -70,6 +70,8 @@ const Register = () => {
     };
 
     try {
+      // `role` is deliberately not sent: the server always creates a Student,
+      // and used to take this field straight from the body.
       const response = await api.post("/register", {
         fullname: formData.name.trim(),
         schoolIdNumber: formData.schoolIdNumber.trim(),
@@ -77,10 +79,9 @@ const Register = () => {
         courseYear: formData.courseYear.trim(),
         contactNumber: cleanContactNumber,
         password: formData.password.trim(),
-        role: "Student",
       });
 
-      localStorage.setItem("currentUser", JSON.stringify(response.data?.user || newUser));
+      saveSession(response.data?.token, response.data?.user || newUser);
       setShowNotification(true);
 
       setTimeout(() => {

@@ -1,1 +1,22 @@
+# OS noise
 .DS_Store
+
+# Dependencies are installed from package-lock.json, never committed.
+node_modules/
+
+# Build output
+client/dist/
+dist/
+
+# Never commit real credentials. The .env.example files are the safe templates.
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Local uploads left over from the pre-Supabase-Storage setup
+server/uploads/

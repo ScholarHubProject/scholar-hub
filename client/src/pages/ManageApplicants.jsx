@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import api, { getApiUrl } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import api, { getApplicationArchiveUrl } from "../api";
 import {
   buttonDangerStyle,
   buttonPrimaryStyle,
@@ -7,6 +7,7 @@ import {
   cardStyle,
   colors,
   eyebrowStyle,
+  inputStyle,
   mutedTextStyle,
   pageHeaderStyle,
   pageStyle,
@@ -112,8 +113,18 @@ const getFolderSize = (application) =>
     0
   );
 
-const getFolderDownloadUrl = (application) =>
-  getApiUrl(`/applications/${application.id}/files/download`);
+// Built on click rather than as a plain href: the archive endpoint checks
+// permission, and a download link cannot send an Authorization header, so the
+// server issues a short-lived token scoped to this one application first.
+const downloadRequirementsFolder = async (application) => {
+  try {
+    const url = await getApplicationArchiveUrl(application.id);
+    window.location.assign(url);
+  } catch (error) {
+    console.log("Folder download error:", error);
+    alert("Unable to download that folder right now. Please try again.");
+  }
+};
 
 const EmailIcon = () => (
   <svg
@@ -134,12 +145,21 @@ const EmailIcon = () => (
   </svg>
 );
 
+const PAGE_SIZE = 25;
+
 const ManageApplicants = () => {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState(null);
+  // Search, filter and paging all happen in the database now. The endpoint used
+  // to return every row at once, which grew unbounded as applications came in.
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [totals, setTotals] = useState({ total: 0, totalPages: 1 });
   const pendingCount = applications.filter(
     (application) => application.status === "Pending Review"
   ).length;
@@ -152,46 +172,54 @@ const ManageApplicants = () => {
     setTimeout(() => setNotice(null), 3000);
   };
 
-  const loadApplications = async () => {
-    setLoading(true);
+  // State is only touched from the promise callbacks, never synchronously in
+  // the effect body, so a render is not triggered during the effect itself.
+  const loadApplications = useCallback(
+    (isActive = () => true) =>
+      api
+        .get("/applications", {
+          params: { search, status: statusFilter, page, pageSize: PAGE_SIZE },
+        })
+        .then((response) => {
+          if (!isActive()) return;
 
-    try {
-      const response = await api.get("/applications");
-      setApplications(response.data);
-    } catch (error) {
-      console.log("Applications load error:", error);
-      showNotice("error", "Failed to load applications");
-    } finally {
-      setLoading(false);
-    }
-  };
+          setApplications(response.data.applications || []);
+          setTotals({
+            total: response.data.total || 0,
+            totalPages: response.data.totalPages || 1,
+          });
+        })
+        .catch((error) => {
+          console.log("Applications load error:", error);
+          if (isActive()) {
+            setNotice({ type: "error", message: "Failed to load applications" });
+          }
+        })
+        .finally(() => {
+          if (isActive()) setLoading(false);
+        }),
+    [search, statusFilter, page]
+  );
 
   useEffect(() => {
-    let isActive = true;
+    let active = true;
 
-    api
-      .get("/applications")
-      .then((response) => {
-        if (isActive) {
-          setApplications(response.data);
-        }
-      })
-      .catch((error) => {
-        console.log("Applications load error:", error);
-        if (isActive) {
-          setNotice({ type: "error", message: "Failed to load applications" });
-        }
-      })
-      .finally(() => {
-        if (isActive) {
-          setLoading(false);
-        }
-      });
+    loadApplications(() => active);
 
     return () => {
-      isActive = false;
+      active = false;
     };
-  }, []);
+  }, [loadApplications]);
+
+  // Debounced so typing does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const updateStatus = async (id, status) => {
     try {
@@ -381,7 +409,7 @@ const ManageApplicants = () => {
           <div style={summaryCardsStyle}>
             <div style={summaryCardStyle}>
               <span style={eyebrowStyle}>Total</span>
-              <strong style={summaryNumberStyle}>{applications.length}</strong>
+              <strong style={summaryNumberStyle}>{totals.total}</strong>
               <p style={mutedTextStyle}>Applications</p>
             </div>
             <div style={summaryCardStyle}>
@@ -410,10 +438,38 @@ const ManageApplicants = () => {
           </div>
         </section>
 
+        <section style={filterBarStyle}>
+          <input
+            type="search"
+            style={searchInputStyle}
+            placeholder="Search by name, email, school ID or scholarship"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+
+          <select
+            style={filterSelectStyle}
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All statuses</option>
+            <option value="Pending Review">Pending</option>
+            <option value="Approved">Approved</option>
+            <option value="Rejected">Disapproved</option>
+          </select>
+        </section>
+
         {loading ? (
           <div style={emptyStateStyle}>Loading applications...</div>
         ) : applications.length === 0 ? (
-          <div style={emptyStateStyle}>No student applications yet.</div>
+          <div style={emptyStateStyle}>
+            {search || statusFilter
+              ? "No applications match that search."
+              : "No student applications yet."}
+          </div>
         ) : (
           <div style={tableWrapStyle}>
             <table style={tableStyle}>
@@ -462,12 +518,13 @@ const ManageApplicants = () => {
                               {" · "}
                               {formatFileSize(getFolderSize(application))}
                             </p>
-                            <a
-                              href={getFolderDownloadUrl(application)}
+                            <button
+                              type="button"
+                              onClick={() => downloadRequirementsFolder(application)}
                               style={downloadLinkStyle}
                             >
                               Download Folder
-                            </a>
+                            </button>
                           </div>
                         </div>
                       ) : (
@@ -513,6 +570,34 @@ const ManageApplicants = () => {
               </tbody>
             </table>
           </div>
+        )}
+
+        {!loading && totals.totalPages > 1 && (
+          <nav style={paginationStyle} aria-label="Applications pages">
+            <button
+              type="button"
+              style={pageButtonStyle}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1}
+            >
+              Previous
+            </button>
+
+            <span style={pageStatusStyle}>
+              Page {page} of {totals.totalPages} &middot; {totals.total} applications
+            </span>
+
+            <button
+              type="button"
+              style={pageButtonStyle}
+              onClick={() =>
+                setPage((current) => Math.min(totals.totalPages, current + 1))
+              }
+              disabled={page >= totals.totalPages}
+            >
+              Next
+            </button>
+          </nav>
         )}
 
         {pendingDelete && (
@@ -769,6 +854,45 @@ const tableSubtextStyle = {
 const attachmentCellStyle = {
   ...tdStyle,
   textAlign: "center",
+};
+
+const filterBarStyle = {
+  display: "flex",
+  gap: "12px",
+  flexWrap: "wrap",
+  marginBottom: "16px",
+};
+
+const searchInputStyle = {
+  ...inputStyle,
+  flex: "1 1 280px",
+  height: "44px",
+};
+
+const filterSelectStyle = {
+  ...inputStyle,
+  flex: "0 1 200px",
+  height: "44px",
+};
+
+const paginationStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "14px",
+  flexWrap: "wrap",
+  marginTop: "18px",
+};
+
+const pageButtonStyle = {
+  ...buttonSecondaryStyle,
+  padding: "10px 18px",
+};
+
+const pageStatusStyle = {
+  color: colors.muted,
+  fontSize: "14px",
+  fontWeight: "600",
 };
 
 const emptyStateStyle = {

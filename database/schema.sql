@@ -14,6 +14,8 @@
 -- 1. Clear out any previous version of these tables
 -- ------------------------------------------------------------
 -- CASCADE also removes the foreign key from applications.
+DROP TABLE IF EXISTS password_reset_tokens CASCADE;
+DROP TABLE IF EXISTS login_attempts CASCADE;
 DROP TABLE IF EXISTS applications CASCADE;
 DROP TABLE IF EXISTS announcements CASCADE;
 DROP TABLE IF EXISTS scholarships CASCADE;
@@ -97,26 +99,65 @@ CREATE TABLE announcements (
 
 
 -- ------------------------------------------------------------
--- 6. Indexes for the lookups the app does most
+-- 6. Password reset links
+-- ------------------------------------------------------------
+-- Only the SHA-256 of each token is stored, so a copy of this table cannot be
+-- replayed to take over an account. Rows expire after an hour and are marked
+-- used once redeemed.
+CREATE TABLE password_reset_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash VARCHAR(128) NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  used_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- ------------------------------------------------------------
+-- 7. Failed sign-in counters
+-- ------------------------------------------------------------
+-- Kept in the database rather than in memory because each serverless function
+-- instance has its own memory, so an in-process counter would reset whenever
+-- the platform started another one.
+CREATE TABLE login_attempts (
+  identifier VARCHAR(200) PRIMARY KEY,
+  attempts INT NOT NULL DEFAULT 0,
+  first_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  locked_until TIMESTAMP
+);
+
+
+-- ------------------------------------------------------------
+-- 8. Indexes for the lookups the app does most
 -- ------------------------------------------------------------
 CREATE INDEX idx_users_email ON users (LOWER(email));
 CREATE INDEX idx_applications_email ON applications (LOWER(email));
 CREATE INDEX idx_applications_user_id ON applications (user_id);
 CREATE INDEX idx_applications_scholarship_id ON applications (scholarship_id);
+CREATE INDEX idx_reset_token_hash ON password_reset_tokens (token_hash);
 
 
 -- ------------------------------------------------------------
--- 7. Default admin account
+-- 9. Default admin account
 -- ------------------------------------------------------------
--- Login with:  admin@scholarhub.com  /  admin123  /  user type "Admin"
-INSERT INTO users (fullname, email, password, role)
-VALUES ('Admin User', 'admin@scholarhub.com', 'admin123', 'Admin');
+-- Deliberately not seeded here. Passwords are stored as scrypt hashes, and a
+-- hash cannot be written by hand in SQL.
+--
+-- Instead, set ADMIN_EMAIL and ADMIN_PASSWORD in the server environment and
+-- start the server once: it creates the admin account with a proper hash, and
+-- leaves it alone on every later start. Then remove ADMIN_PASSWORD.
+--
+-- The old version of this file inserted 'admin123' as plain text.  If you ran
+-- it, that row is still there: log in with it once (the server will re-hash the
+-- password automatically) and then change the password from the profile menu.
 
 
 -- ------------------------------------------------------------
--- 8. Confirm it worked
+-- 10. Confirm it worked
 -- ------------------------------------------------------------
--- Expect four rows: announcements, applications, scholarships, users.
+-- Expect six rows: announcements, applications, login_attempts,
+-- password_reset_tokens, scholarships, users.
 SELECT table_name
 FROM information_schema.tables
 WHERE table_schema = 'public'

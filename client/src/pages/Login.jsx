@@ -1,6 +1,6 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useState } from "react";
-import api from "../api";
+import api, { saveSession } from "../api";
 import { getSavedSettings } from "../settings";
 import {
   authCardStyle,
@@ -15,11 +15,16 @@ import {
 
 const Login = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [userType, setUserType] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+  // ?expired=1 is set by the axios interceptor when a request comes back 401,
+  // so the user is told why they were bounced back here.
+  const [message, setMessage] = useState(
+    searchParams.get("expired") ? "Your session has expired. Please log in again." : ""
+  );
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -47,7 +52,7 @@ const Login = () => {
       const currentUser = response.data.user;
       const settings = getSavedSettings();
 
-      localStorage.setItem("currentUser", JSON.stringify(currentUser));
+      saveSession(response.data.token, currentUser);
       navigate(
         currentUser.role === "Student" && settings.defaultDashboard === "Scholarships"
           ? "/scholarships"
@@ -120,6 +125,10 @@ const Login = () => {
             {isLoading ? "Checking Account..." : "Login"}
           </button>
 
+          <Link to="/forgot-password" style={forgotLinkStyle}>
+            Forgot your password?
+          </Link>
+
           <Link to="/register" style={registerLinkStyle}>
             <button type="button" style={registerButtonStyle}>
               Register
@@ -183,6 +192,14 @@ const buttonStyle = {
   width: "100%",
   height: "48px",
   marginTop: "4px",
+};
+
+const forgotLinkStyle = {
+  color: colors.primary,
+  textAlign: "center",
+  fontSize: "14px",
+  fontWeight: "600",
+  textDecoration: "none",
 };
 
 const registerLinkStyle = {

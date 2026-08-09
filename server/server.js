@@ -4,6 +4,8 @@ const { Pool, types } = require("pg");
 const path = require("path");
 const multer = require("multer");
 const storage = require("./storage");
+const auth = require("./auth");
+const mailer = require("./mailer");
 require("dotenv").config();
 
 const app = express();
@@ -99,8 +101,107 @@ const EMPTY_DASHBOARD_STATS = {
   scholarships_posted: 0,
 };
 
-app.use(cors());
-app.use(express.json());
+// Only the origins we actually serve the app from may call the API. Set
+// CORS_ALLOWED_ORIGINS to a comma separated list for extra deploy previews.
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+];
+
+const allowedOrigins = [
+  ...DEFAULT_ALLOWED_ORIGINS,
+  ...String(process.env.CORS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
+    .filter(Boolean),
+];
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Same-origin browser requests and server-to-server calls send no Origin;
+      // in production the SPA and the API share an origin, so this is the
+      // normal case rather than an exception.
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin.replace(/\/+$/, ""))) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Origin not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    maxAge: 600,
+  })
+);
+
+// The security headers that matter for an API plus a static SPA. Written by hand
+// rather than pulling in helmet, which would add a dependency for six headers.
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader(
+    "Strict-Transport-Security",
+    "max-age=31536000; includeSubDomains"
+  );
+  next();
+});
+
+// A body larger than this is never legitimate here; file uploads go through
+// multer, which enforces its own per-file limits.
+app.use(express.json({ limit: "100kb" }));
+
+// ------------------------------------------------------------------
+// Authentication
+// ------------------------------------------------------------------
+// Every handler below trusts req.user and nothing else. Identity is never read
+// from the request body or query string, because the client controls both.
+const attachUser = (req, res, next) => {
+  const payload = auth.verifyToken(auth.readBearerToken(req));
+
+  req.user = payload
+    ? { id: Number(payload.sub), email: payload.email, role: payload.role }
+    : null;
+
+  next();
+};
+
+const requireAuth = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      message: "Please log in to continue.",
+      code: "UNAUTHENTICATED",
+    });
+  }
+
+  return next();
+};
+
+const requireRole = (role) => (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      message: "Please log in to continue.",
+      code: "UNAUTHENTICATED",
+    });
+  }
+
+  if (req.user.role !== role) {
+    return res.status(403).json({
+      message: "You do not have permission to do that.",
+      code: "FORBIDDEN",
+    });
+  }
+
+  return next();
+};
+
+app.use(attachUser);
 
 
 const sanitizeUploadPathPart = (value, fallback) => {
@@ -604,24 +705,88 @@ const createAnnouncementsTable = () => {
   });
 };
 
-const seedDefaultAdmin = () => {
+const createPasswordResetTable = () => {
   const sql = `
-    INSERT INTO users (fullname, email, password, role)
-    VALUES ('Admin User', 'admin@scholarhub.com', 'admin123', 'Admin')
-    ON CONFLICT (email) DO UPDATE SET
-      fullname = EXCLUDED.fullname,
-      password = EXCLUDED.password,
-      role = EXCLUDED.role
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash VARCHAR(128) NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
   `;
 
   db.query(sql, (err) => {
     if (err) {
-      console.log("Default Admin Seed Error:", err);
+      console.log("Password Reset Table Create Error:", err);
       return;
     }
 
-    console.log("Default admin account ready");
+    db.query(
+      "CREATE INDEX IF NOT EXISTS idx_reset_token_hash ON password_reset_tokens (token_hash)",
+      (indexErr) => {
+        if (indexErr) console.log("Reset token index error:", indexErr.message);
+      }
+    );
   });
+};
+
+// Brute-force counters live in the database rather than in process memory:
+// each Netlify function instance has its own memory, so an in-process counter
+// would reset whenever the platform spun up another one.
+const createLoginAttemptsTable = () => {
+  const sql = `
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      identifier VARCHAR(200) PRIMARY KEY,
+      attempts INT NOT NULL DEFAULT 0,
+      first_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      locked_until TIMESTAMP
+    )
+  `;
+
+  db.query(sql, (err) => {
+    if (err) console.log("Login Attempts Table Create Error:", err);
+  });
+};
+
+// Only creates the account when it is missing. The previous version overwrote
+// the password on every boot, which reset the admin back to a known value after
+// each deploy and undid any password change.
+const seedDefaultAdmin = async () => {
+  const email = normalizeEmail(process.env.ADMIN_EMAIL || "admin@scholarhub.com");
+  const password = process.env.ADMIN_PASSWORD || "";
+
+  if (!password) {
+    console.log(
+      "Default admin not seeded: set ADMIN_PASSWORD to create the first admin account."
+    );
+    return;
+  }
+
+  try {
+    const passwordHash = await auth.hashPassword(password);
+    const sql = `
+      INSERT INTO users (fullname, email, password, role)
+      VALUES (?, ?, ?, 'Admin')
+      ON CONFLICT (email) DO NOTHING
+    `;
+
+    db.query(sql, ["Admin User", email, passwordHash], (err, result) => {
+      if (err) {
+        console.log("Default Admin Seed Error:", err);
+        return;
+      }
+
+      console.log(
+        result.affectedRows > 0
+          ? `Default admin created: ${email}`
+          : "Default admin already exists; left unchanged"
+      );
+    });
+  } catch (hashErr) {
+    console.log("Default Admin Hash Error:", hashErr.message);
+  }
 };
 
 // Supabase provisions the database for us, so there is no CREATE DATABASE step:
@@ -656,6 +821,8 @@ const initializeDatabase = () => {
     createScholarshipsTable();
     createApplicationsTable();
     createAnnouncementsTable();
+    createPasswordResetTable();
+    createLoginAttemptsTable();
     seedDefaultAdmin();
 
     console.log("Postgres connected and tables ready");
@@ -690,7 +857,9 @@ app.get("/api/test", (req, res) => {
   });
 });
 
-app.get("/api/db-status", (req, res) => {
+// Admin only: the response names the database host, user and config source,
+// which is exactly the reconnaissance an attacker wants.
+app.get("/api/db-status", (req, res, next) => requireRole("Admin")(req, res, next), (req, res) => {
   const connectionInfo = {
     host: dbConfig.host || "(not set)",
     port: dbConfig.port,
@@ -723,7 +892,30 @@ app.get("/api/db-status", (req, res) => {
   });
 });
 
-const registerUser = (req, res) => {
+// Self-service signup always creates a Student. The old handler took `role`
+// straight from the request body, so anyone could POST role:"Admin" and get an
+// admin account. Admins are created by an existing admin, or by ADMIN_PASSWORD
+// on first boot.
+const MIN_PASSWORD_LENGTH = 8;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const describePasswordProblem = (password) => {
+  if (!password || password.length < MIN_PASSWORD_LENGTH) {
+    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`;
+  }
+
+  if (password.length > 200) {
+    return "Password must be shorter than 200 characters.";
+  }
+
+  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+    return "Password must contain at least one letter and one number.";
+  }
+
+  return null;
+};
+
+const registerUser = async (req, res) => {
   const {
     fullname,
     schoolIdNumber,
@@ -734,7 +926,6 @@ const registerUser = (req, res) => {
     contactNumber,
     contact_number,
     password,
-    role = "Student",
   } = req.body;
 
   const cleanFullname = fullname?.trim();
@@ -743,11 +934,31 @@ const registerUser = (req, res) => {
   const cleanPassword = password?.trim();
   const cleanCourseYear = (courseYear || course_year || "").trim();
   const cleanContactNumber = (contactNumber || contact_number || "").trim();
+  const role = "Student";
 
-      if (!cleanFullname || !cleanSchoolIdNumber || !cleanEmail || !cleanPassword) {
+  if (!cleanFullname || !cleanSchoolIdNumber || !cleanEmail || !cleanPassword) {
     return res.status(400).json({
       message: "Full name, school ID number, email, and password are required",
     });
+  }
+
+  if (!EMAIL_PATTERN.test(cleanEmail)) {
+    return res.status(400).json({ message: "Please enter a valid email address." });
+  }
+
+  const passwordProblem = describePasswordProblem(cleanPassword);
+
+  if (passwordProblem) {
+    return res.status(400).json({ message: passwordProblem });
+  }
+
+  let passwordHash;
+
+  try {
+    passwordHash = await auth.hashPassword(cleanPassword);
+  } catch (hashErr) {
+    console.log("Registration Hash Error:", hashErr.message);
+    return res.status(500).json({ message: "Registration Failed" });
   }
 
   const sql = `
@@ -764,7 +975,7 @@ const registerUser = (req, res) => {
       cleanEmail,
       cleanCourseYear,
       cleanContactNumber,
-      cleanPassword,
+      passwordHash,
       role,
     ],
     (err, result) => {
@@ -790,24 +1001,99 @@ const registerUser = (req, res) => {
         });
       }
 
+      const newUser = {
+        id: result.insertId,
+        name: cleanFullname,
+        schoolIdNumber: cleanSchoolIdNumber,
+        email: cleanEmail,
+        courseYear: cleanCourseYear,
+        contactNumber: cleanContactNumber,
+        avatarPath: null,
+        role,
+      };
+
+      let token;
+
+      try {
+        token = auth.signToken({ id: newUser.id, email: newUser.email, role });
+      } catch (tokenErr) {
+        console.log("Registration Token Error:", tokenErr.message);
+        return res.status(500).json({ message: serverMisconfiguredMessage });
+      }
+
       res.status(201).json({
         message: "Registration Successful",
-        user: {
-          id: result.insertId,
-          name: cleanFullname,
-          schoolIdNumber: cleanSchoolIdNumber,
-          email: cleanEmail,
-          courseYear: cleanCourseYear,
-          contactNumber: cleanContactNumber,
-          avatarPath: null,
-          role,
-        },
+        token,
+        user: newUser,
       });
     }
   );
 };
 
-const loginUser = (req, res) => {
+const MAX_LOGIN_ATTEMPTS = 8;
+const LOGIN_WINDOW_MINUTES = 15;
+const LOGIN_LOCKOUT_MINUTES = 15;
+
+const runQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+
+const loginIdentifier = (req, email) => {
+  const ip = (req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+  return `${email}|${ip}`.slice(0, 200);
+};
+
+// Returns the number of seconds left on a lockout, or 0 when the caller may try.
+const getLockoutSeconds = async (identifier) => {
+  const rows = await runQuery(
+    `SELECT locked_until FROM login_attempts
+     WHERE identifier = ? AND locked_until IS NOT NULL AND locked_until > CURRENT_TIMESTAMP
+     LIMIT 1`,
+    [identifier]
+  );
+
+  if (rows.length === 0) return 0;
+
+  return Math.max(
+    1,
+    Math.ceil((new Date(rows[0].locked_until).getTime() - Date.now()) / 1000)
+  );
+};
+
+const recordFailedLogin = async (identifier) => {
+  await runQuery(
+    `INSERT INTO login_attempts (identifier, attempts, first_attempt_at)
+     VALUES (?, 1, CURRENT_TIMESTAMP)
+     ON CONFLICT (identifier) DO UPDATE SET
+       attempts = CASE
+         WHEN login_attempts.first_attempt_at < CURRENT_TIMESTAMP - INTERVAL '${LOGIN_WINDOW_MINUTES} minutes'
+         THEN 1
+         ELSE login_attempts.attempts + 1
+       END,
+       first_attempt_at = CASE
+         WHEN login_attempts.first_attempt_at < CURRENT_TIMESTAMP - INTERVAL '${LOGIN_WINDOW_MINUTES} minutes'
+         THEN CURRENT_TIMESTAMP
+         ELSE login_attempts.first_attempt_at
+       END`,
+    [identifier]
+  );
+
+  await runQuery(
+    `UPDATE login_attempts
+     SET locked_until = CURRENT_TIMESTAMP + INTERVAL '${LOGIN_LOCKOUT_MINUTES} minutes'
+     WHERE identifier = ? AND attempts >= ?`,
+    [identifier, MAX_LOGIN_ATTEMPTS]
+  );
+};
+
+const clearLoginAttempts = (identifier) =>
+  runQuery("DELETE FROM login_attempts WHERE identifier = ?", [identifier]);
+
+const serverMisconfiguredMessage =
+  "The server is not configured for sign-in yet. Please contact the administrator.";
+
+const loginUser = async (req, res) => {
   const { email, password, role } = req.body;
 
   const cleanEmail = normalizeEmail(email);
@@ -821,43 +1107,41 @@ const loginUser = (req, res) => {
     });
   }
 
-  const sql = `
-    SELECT id, fullname, school_id_number, email, course_year, contact_number, avatar_path, password, role
-    FROM users
-    WHERE LOWER(email) = ?
-  `;
+  if (!auth.isSecretConfigured()) {
+    console.log("Login blocked: JWT_SECRET is missing or shorter than 32 characters.");
+    return res.status(500).json({ success: false, message: serverMisconfiguredMessage });
+  }
 
-  db.query(sql, [cleanEmail], (err, result) => {
-    if (err) {
-      console.log("Login Error:", err);
+  const identifier = loginIdentifier(req, cleanEmail);
 
-      if (isDbConnectionError(err)) {
-        return res.status(503).json({
-          success: false,
-          message: dbUnavailableMessage,
-          error: err.code,
-        });
-      }
+  try {
+    const lockoutSeconds = await getLockoutSeconds(identifier);
 
-      return res.status(500).json({
+    if (lockoutSeconds > 0) {
+      return res.status(429).json({
         success: false,
-        message: "Login Failed",
-        error: err.code || err.message,
+        message: `Too many failed sign-in attempts. Please try again in ${Math.ceil(
+          lockoutSeconds / 60
+        )} minute(s).`,
       });
     }
+
+    const result = await runQuery(
+      `SELECT id, fullname, school_id_number, email, course_year, contact_number, avatar_path, password, role
+       FROM users
+       WHERE LOWER(email) = ?`,
+      [cleanEmail]
+    );
 
     // Unknown email and wrong password give the same reply so the login page
     // can show one clear "wrong email or password" text either way.
-    if (result.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: "Incorrect email or password. Please try again.",
-      });
-    }
-
     const user = result[0];
+    const check = user
+      ? await auth.verifyPassword(cleanPassword, user.password)
+      : { valid: false, needsRehash: false };
 
-    if (user.password !== cleanPassword) {
+    if (!user || !check.valid) {
+      await recordFailedLogin(identifier);
       return res.status(401).json({
         success: false,
         message: "Incorrect email or password. Please try again.",
@@ -865,15 +1149,34 @@ const loginUser = (req, res) => {
     }
 
     if (user.role !== cleanRole) {
+      await recordFailedLogin(identifier);
       return res.status(403).json({
         success: false,
         message: `This account is registered as ${user.role}`,
       });
     }
 
-    res.json({
+    await clearLoginAttempts(identifier);
+
+    // The row still held a plain-text password from before hashing existed.
+    // Now that we know it is correct, replace it with a hash.
+    if (check.needsRehash) {
+      try {
+        const upgradedHash = await auth.hashPassword(cleanPassword);
+        await runQuery("UPDATE users SET password = ? WHERE id = ?", [
+          upgradedHash,
+          user.id,
+        ]);
+        console.log(`Upgraded legacy password hash for user ${user.id}`);
+      } catch (upgradeErr) {
+        console.log("Password Upgrade Error:", upgradeErr.message);
+      }
+    }
+
+    return res.json({
       success: true,
       message: "Login Successful",
+      token: auth.signToken({ id: user.id, email: user.email, role: user.role }),
       user: {
         id: user.id,
         name: user.fullname,
@@ -885,13 +1188,176 @@ const loginUser = (req, res) => {
         role: user.role,
       },
     });
-  });
+  } catch (err) {
+    console.log("Login Error:", err);
+
+    if (isDbConnectionError(err)) {
+      return res.status(503).json({
+        success: false,
+        message: dbUnavailableMessage,
+        error: err.code,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Login Failed",
+      error: err.code || err.message,
+    });
+  }
 };
 
+// ------------------------------------------------------------------
+// Password management
+// ------------------------------------------------------------------
+const RESET_TOKEN_MINUTES = 60;
+
+// Always answers 200 with the same body. Telling the caller whether an address
+// exists would turn this endpoint into an account enumeration oracle.
+const requestPasswordReset = async (req, res) => {
+  const cleanEmail = normalizeEmail(req.body?.email);
+  const genericReply = {
+    message:
+      "If that email address has an account, a password reset link is on its way.",
+  };
+
+  if (!cleanEmail || !EMAIL_PATTERN.test(cleanEmail)) {
+    return res.json(genericReply);
+  }
+
+  try {
+    const rows = await runQuery(
+      "SELECT id, fullname, email FROM users WHERE LOWER(email) = ? LIMIT 1",
+      [cleanEmail]
+    );
+
+    if (rows.length === 0) {
+      return res.json(genericReply);
+    }
+
+    const user = rows[0];
+    const { rawToken, tokenHash } = auth.createResetToken();
+
+    // Any link already outstanding for this account stops working.
+    await runQuery(
+      "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL",
+      [user.id]
+    );
+
+    await runQuery(
+      `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL '${RESET_TOKEN_MINUTES} minutes')`,
+      [user.id, tokenHash]
+    );
+
+    const mailResult = await mailer.sendPasswordResetEmail({
+      to: user.email,
+      name: user.fullname,
+      rawToken,
+    });
+
+    // With no mail provider configured the link would otherwise be unreachable,
+    // so it is logged for the operator instead of being silently dropped.
+    if (!mailResult.sent) {
+      console.log(
+        `Password reset link for ${user.email} (email not sent: ${mailResult.reason}): /reset-password?token=${rawToken}`
+      );
+    }
+
+    return res.json(genericReply);
+  } catch (err) {
+    console.log("Password Reset Request Error:", err);
+    return res.json(genericReply);
+  }
+};
+
+const resetPassword = async (req, res) => {
+  const rawToken = String(req.body?.token || "").trim();
+  const newPassword = String(req.body?.password || "").trim();
+
+  if (!rawToken) {
+    return res.status(400).json({ message: "This reset link is not valid." });
+  }
+
+  const passwordProblem = describePasswordProblem(newPassword);
+
+  if (passwordProblem) {
+    return res.status(400).json({ message: passwordProblem });
+  }
+
+  try {
+    const rows = await runQuery(
+      `SELECT id, user_id FROM password_reset_tokens
+       WHERE token_hash = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+       LIMIT 1`,
+      [auth.hashResetToken(rawToken)]
+    );
+
+    if (rows.length === 0) {
+      return res.status(400).json({
+        message: "This reset link has expired or was already used. Please request a new one.",
+      });
+    }
+
+    const { id: tokenId, user_id: userId } = rows[0];
+    const passwordHash = await auth.hashPassword(newPassword);
+
+    await runQuery("UPDATE users SET password = ? WHERE id = ?", [passwordHash, userId]);
+    await runQuery(
+      "UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [tokenId]
+    );
+
+    return res.json({ message: "Your password has been changed. Please log in." });
+  } catch (err) {
+    console.log("Password Reset Error:", err);
+    return res.status(500).json({ message: "Failed to reset password. Please try again." });
+  }
+};
+
+const changePassword = async (req, res) => {
+  const currentPassword = String(req.body?.currentPassword || "").trim();
+  const newPassword = String(req.body?.newPassword || "").trim();
+
+  if (!currentPassword) {
+    return res.status(400).json({ message: "Please enter your current password." });
+  }
+
+  const passwordProblem = describePasswordProblem(newPassword);
+
+  if (passwordProblem) {
+    return res.status(400).json({ message: passwordProblem });
+  }
+
+  try {
+    const rows = await runQuery("SELECT password FROM users WHERE id = ? LIMIT 1", [
+      req.user.id,
+    ]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "User not found. Please log in again." });
+    }
+
+    const check = await auth.verifyPassword(currentPassword, rows[0].password);
+
+    if (!check.valid) {
+      return res.status(401).json({ message: "Your current password is incorrect." });
+    }
+
+    const passwordHash = await auth.hashPassword(newPassword);
+    await runQuery("UPDATE users SET password = ? WHERE id = ?", [passwordHash, req.user.id]);
+
+    return res.json({ message: "Password changed successfully." });
+  } catch (err) {
+    console.log("Change Password Error:", err);
+    return res.status(500).json({ message: "Failed to change password. Please try again." });
+  }
+};
+
+// Which account is edited comes from the token, never from the body: the old
+// version let a caller pass any id or email and rewrite that person's profile.
 const updateUserProfile = (req, res) => {
   const {
-    id,
-    email,
     fullname,
     name,
     schoolIdNumber,
@@ -902,24 +1368,23 @@ const updateUserProfile = (req, res) => {
     contact_number,
   } = req.body;
 
-  const cleanEmail = normalizeEmail(email);
+  const cleanEmail = normalizeEmail(req.user.email);
   const cleanFullname = (fullname || name || "").trim();
   const cleanSchoolIdNumber = (schoolIdNumber || school_id_number || "").trim();
   const cleanCourseYear = (courseYear || course_year || "").trim();
   const cleanContactNumber = (contactNumber || contact_number || "").trim();
-  const cleanId = Number(id);
-  const hasUserId = Number.isInteger(cleanId) && cleanId > 0;
+  const cleanId = req.user.id;
 
-  if ((!hasUserId && !cleanEmail) || !cleanFullname) {
+  if (!cleanFullname) {
     return res.status(400).json({
-      message: "User account and full name are required",
+      message: "Full name is required",
     });
   }
 
   const sql = `
     UPDATE users
     SET fullname = ?, school_id_number = ?, course_year = ?, contact_number = ?
-    WHERE ${hasUserId ? "id = ?" : "LOWER(email) = ?"}
+    WHERE id = ?
   `;
 
   db.query(
@@ -929,7 +1394,7 @@ const updateUserProfile = (req, res) => {
       cleanSchoolIdNumber,
       cleanCourseYear,
       cleanContactNumber,
-      hasUserId ? cleanId : cleanEmail,
+      cleanId,
     ],
     (err, result) => {
       if (err) {
@@ -984,15 +1449,12 @@ const updateUserProfile = (req, res) => {
 };
 
 const updateUserAvatar = async (req, res) => {
-  const { id, email } = req.body || {};
-  const cleanId = Number(id);
-  const hasUserId = Number.isInteger(cleanId) && cleanId > 0;
-  const cleanEmail = normalizeEmail(email);
+  const cleanId = req.user.id;
   const uploadedFile = req.file;
 
-  if ((!hasUserId && !cleanEmail) || !uploadedFile) {
+  if (!uploadedFile) {
     return res.status(400).json({
-      message: "User account and profile photo are required",
+      message: "A profile photo is required",
     });
   }
 
@@ -1017,8 +1479,8 @@ const updateUserAvatar = async (req, res) => {
   const cleanupUploadedAvatar = () => {
     storage.removeObject(relativeAvatarPath);
   };
-  const whereClause = hasUserId ? "id = ?" : "LOWER(email) = ?";
-  const queryValue = hasUserId ? cleanId : cleanEmail;
+  const whereClause = "id = ?";
+  const queryValue = cleanId;
   const lookupSql = `
     SELECT avatar_path
     FROM users
@@ -1365,13 +1827,10 @@ const updateAnnouncement = (req, res) => {
 const createApplication = async (req, res) => {
   const body = req.body || {};
   const {
-    userId,
-    user_id,
     studentName,
     student_name,
     schoolIdNumber,
     school_id_number,
-    email,
     courseYear,
     course_year,
     contactNumber,
@@ -1384,13 +1843,15 @@ const createApplication = async (req, res) => {
 
   const cleanStudentName = (studentName || student_name || "").trim();
   const cleanSchoolIdNumber = (schoolIdNumber || school_id_number || "").trim();
-  const cleanEmail = normalizeEmail(email);
   const cleanCourseYear = (courseYear || course_year || "").trim();
   const cleanContactNumber = (contactNumber || contact_number || "").trim();
   const cleanScholarshipTitle = (scholarshipTitle || scholarship_title || "").trim();
   const cleanScholarshipId = scholarshipId || scholarship_id || null;
-  const cleanUserId = Number(userId || user_id);
-  const hasUserId = Number.isInteger(cleanUserId) && cleanUserId > 0;
+  // The application is always filed for the signed-in student. Taking userId
+  // and email from the body let a caller submit under another student's name.
+  const cleanUserId = req.user.id;
+  const cleanEmail = normalizeEmail(req.user.email);
+  const hasUserId = true;
   const uploadedFiles = [
     ...(Array.isArray(req.files?.attachments) ? req.files.attachments : []),
     ...(Array.isArray(req.files?.attachment) ? req.files.attachment : []),
@@ -1605,46 +2066,99 @@ const createApplication = async (req, res) => {
   });
 };
 
+const MAX_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 25;
+
+// The list used to select every row with no limit, so the response grew without
+// bound as applications came in. It now pages, and can be searched and filtered
+// in the database instead of in the browser.
 const getApplications = (req, res) => {
-  const sql = `
-    SELECT a.id, a.student_name, a.school_id_number, a.email, a.course_year, a.contact_number,
-      a.scholarship_id, s.scholarship_code, COALESCE(NULLIF(a.scholarship_title, ''), s.title) AS scholarship_title,
-      a.status, a.remarks, a.uploaded_file_name, a.uploaded_file_path, a.uploaded_file_type, a.uploaded_file_size, a.uploaded_files_json, a.status_updated_at, a.created_at
+  const search = String(req.query.search || "").trim().slice(0, 120);
+  const status = String(req.query.status || "").trim();
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(
+    MAX_PAGE_SIZE,
+    Math.max(1, Number.parseInt(req.query.pageSize, 10) || DEFAULT_PAGE_SIZE)
+  );
+  const offset = (page - 1) * pageSize;
+
+  const conditions = [];
+  const values = [];
+
+  if (search) {
+    conditions.push(`(
+      a.student_name ILIKE ?
+      OR a.email ILIKE ?
+      OR a.school_id_number ILIKE ?
+      OR COALESCE(NULLIF(a.scholarship_title, ''), s.title) ILIKE ?
+    )`);
+    const pattern = `%${search}%`;
+    values.push(pattern, pattern, pattern, pattern);
+  }
+
+  if (["Approved", "Rejected", "Pending Review"].includes(status)) {
+    conditions.push("a.status = ?");
+    values.push(status);
+  }
+
+  const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const countSql = `
+    SELECT COUNT(*) AS total
     FROM applications a
     LEFT JOIN scholarships s ON s.id = a.scholarship_id
-    ORDER BY a.created_at DESC, a.id DESC
+    ${whereSql}
   `;
 
-  db.query(sql, (err, rows) => {
-    if (err) {
-      console.log("Applications Fetch Error:", err);
+  db.query(countSql, values, (countErr, countRows) => {
+    if (countErr) {
+      console.log("Applications Count Error:", countErr);
       return res.status(500).json({
         message: "Failed to load applications",
       });
     }
 
-    res.json(
-      rows.map((application) => ({
-        ...application,
-        uploaded_files: parseUploadedFiles(application),
-      }))
-    );
+    const total = Number(countRows[0]?.total) || 0;
+    const sql = `
+      SELECT a.id, a.student_name, a.school_id_number, a.email, a.course_year, a.contact_number,
+        a.scholarship_id, s.scholarship_code, COALESCE(NULLIF(a.scholarship_title, ''), s.title) AS scholarship_title,
+        a.status, a.remarks, a.uploaded_file_name, a.uploaded_file_path, a.uploaded_file_type, a.uploaded_file_size, a.uploaded_files_json, a.status_updated_at, a.created_at
+      FROM applications a
+      LEFT JOIN scholarships s ON s.id = a.scholarship_id
+      ${whereSql}
+      ORDER BY a.created_at DESC, a.id DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    return db.query(sql, [...values, pageSize, offset], (err, rows) => {
+      if (err) {
+        console.log("Applications Fetch Error:", err);
+        return res.status(500).json({
+          message: "Failed to load applications",
+        });
+      }
+
+      return res.json({
+        applications: rows.map((application) => ({
+          ...application,
+          uploaded_files: parseUploadedFiles(application),
+        })),
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      });
+    });
   });
 };
 
+// Scoped to the signed-in student. The old handler read the email straight out
+// of the query string, so passing anyone's address returned their applications.
+// Rows are matched on user_id or email because applications filed before
+// accounts were linked have a null user_id.
 const getStudentApplications = (req, res) => {
-  const cleanUserId = Number(req.query.userId || req.query.user_id);
-  const cleanEmail = normalizeEmail(req.query.email);
-
-  if (!cleanEmail && !(Number.isInteger(cleanUserId) && cleanUserId > 0)) {
-    return res.status(400).json({
-      message: "Student email or user ID is required",
-    });
-  }
-
-  const hasUserId = Number.isInteger(cleanUserId) && cleanUserId > 0;
-  const whereClause = hasUserId ? "a.user_id = ?" : "LOWER(a.email) = ?";
-  const queryValue = hasUserId ? cleanUserId : cleanEmail;
+  const whereClause = "(a.user_id = ? OR LOWER(a.email) = ?)";
+  const queryValue = [req.user.id, normalizeEmail(req.user.email)];
 
   const sql = `
     SELECT a.id, a.student_name, a.school_id_number, a.email, a.course_year, a.contact_number,
@@ -1656,7 +2170,7 @@ const getStudentApplications = (req, res) => {
     ORDER BY a.created_at DESC, a.id DESC
   `;
 
-  db.query(sql, [queryValue], (err, rows) => {
+  db.query(sql, queryValue, (err, rows) => {
     if (err) {
       console.log("Student Applications Fetch Error:", err);
       return res.status(500).json({
@@ -1707,6 +2221,27 @@ const updateApplicationStatus = (req, res) => {
       return res.status(404).json({
         message: "Application not found",
       });
+    }
+
+    // The admin's response must not wait on, or fail because of, the email.
+    if (cleanStatus !== "Pending Review") {
+      db.query(
+        "SELECT student_name, email, scholarship_title FROM applications WHERE id = ? LIMIT 1",
+        [id],
+        (lookupErr, rows) => {
+          if (lookupErr || rows.length === 0) return;
+
+          mailer
+            .sendApplicationStatusEmail({
+              to: rows[0].email,
+              name: rows[0].student_name,
+              scholarshipTitle: rows[0].scholarship_title,
+              status: cleanStatus,
+              remarks: cleanRemarks,
+            })
+            .catch((mailErr) => console.log("Status Email Error:", mailErr.message));
+        }
+      );
     }
 
     res.json({
@@ -1794,6 +2329,19 @@ const getAdminRecentActivity = (req, res) => {
   });
 };
 
+// Admins see every application; a student sees only their own. Applications
+// filed before accounts were linked have a null user_id, so email is the
+// fallback match.
+const canAccessApplication = (user, application) => {
+  if (!user) return false;
+  if (user.role === "Admin") return true;
+
+  return (
+    (application.user_id != null && Number(application.user_id) === user.id) ||
+    normalizeEmail(application.email) === normalizeEmail(user.email)
+  );
+};
+
 const getApplicationFile = (req, res) => {
   const { id } = req.params;
   const shouldDownload = req.query.download === "1";
@@ -1804,7 +2352,7 @@ const getApplicationFile = (req, res) => {
       : 0;
 
   const sql = `
-    SELECT uploaded_file_name, uploaded_file_path, uploaded_file_type, uploaded_file_size, uploaded_files_json
+    SELECT user_id, email, uploaded_file_name, uploaded_file_path, uploaded_file_type, uploaded_file_size, uploaded_files_json
     FROM applications
     WHERE id = ?
     LIMIT 1
@@ -1825,6 +2373,13 @@ const getApplicationFile = (req, res) => {
     }
 
     const application = rows[0];
+
+    if (!canAccessApplication(req.user, application)) {
+      return res.status(403).json({
+        message: "You do not have permission to view this file.",
+      });
+    }
+
     const uploadedFiles = parseUploadedFiles(application);
     const selectedFile = uploadedFiles[fileIndex];
 
@@ -1865,7 +2420,7 @@ const getApplicationFile = (req, res) => {
 const getApplicationFilesArchive = (req, res) => {
   const { id } = req.params;
   const sql = `
-    SELECT student_name, uploaded_file_name, uploaded_file_path, uploaded_file_type, uploaded_file_size, uploaded_files_json
+    SELECT student_name, user_id, email, uploaded_file_name, uploaded_file_path, uploaded_file_type, uploaded_file_size, uploaded_files_json
     FROM applications
     WHERE id = ?
     LIMIT 1
@@ -1886,6 +2441,13 @@ const getApplicationFilesArchive = (req, res) => {
     }
 
     const application = rows[0];
+
+    if (!canAccessApplication(req.user, application)) {
+      return res.status(403).json({
+        message: "You do not have permission to download these files.",
+      });
+    }
+
     const uploadedFiles = parseUploadedFiles(application);
     const folderName = sanitizeUploadPathPart(application.student_name, "student-requirements");
 
@@ -1983,79 +2545,185 @@ const deleteApplication = (req, res) => {
   });
 };
 
-app.post("/register", registerUser);
-app.post("/api/register", registerUser);
+// Lets the client confirm a stored token is still valid and refresh the cached
+// profile, instead of trusting whatever localStorage happens to hold.
+const getCurrentUser = (req, res) => {
+  const sql = `
+    SELECT id, fullname, school_id_number, email, course_year, contact_number, avatar_path, role
+    FROM users
+    WHERE id = ?
+    LIMIT 1
+  `;
 
-app.post("/login", loginUser);
-app.post("/api/login", loginUser);
-app.put("/users/profile", updateUserProfile);
-app.put("/api/users/profile", updateUserProfile);
-app.put("/users/avatar", uploadAvatarPhoto, updateUserAvatar);
-app.put("/api/users/avatar", uploadAvatarPhoto, updateUserAvatar);
-app.post("/users/avatar", uploadAvatarPhoto, updateUserAvatar);
-app.post("/api/users/avatar", uploadAvatarPhoto, updateUserAvatar);
+  db.query(sql, [req.user.id], (err, rows) => {
+    if (err) {
+      console.log("Current User Fetch Error:", err);
+      return res.status(500).json({ message: "Failed to load your account" });
+    }
 
-app.get("/scholarships", serveClientApp, getScholarships);
-app.post("/scholarships", createScholarship);
-app.put("/scholarships/:id", updateScholarship);
-app.delete("/scholarships/:id", deleteScholarship);
+    if (rows.length === 0) {
+      return res.status(401).json({
+        message: "Your account no longer exists. Please log in again.",
+        code: "UNAUTHENTICATED",
+      });
+    }
 
-app.get("/api/scholarships", getScholarships);
-app.post("/api/scholarships", createScholarship);
-app.put("/api/scholarships/:id", updateScholarship);
-app.delete("/api/scholarships/:id", deleteScholarship);
+    const user = rows[0];
 
-app.get("/announcements", serveClientApp, getAnnouncements);
-app.post("/announcements", createAnnouncement);
-app.put("/announcements/:id", updateAnnouncement);
+    return res.json({
+      user: {
+        id: user.id,
+        name: user.fullname,
+        schoolIdNumber: user.school_id_number,
+        email: user.email,
+        courseYear: user.course_year,
+        contactNumber: user.contact_number,
+        avatarPath: user.avatar_path,
+        role: user.role,
+      },
+    });
+  });
+};
 
-app.get("/api/announcements", getAnnouncements);
-app.post("/api/announcements", createAnnouncement);
-app.put("/api/announcements/:id", updateAnnouncement);
+// Mints the short-lived, single-application token used by download links.
+// The ownership check happens here, once, rather than on every file request.
+const getApplicationFileToken = (req, res) => {
+  const { id } = req.params;
 
-app.post(
-  "/applications",
+  db.query(
+    "SELECT user_id, email FROM applications WHERE id = ? LIMIT 1",
+    [id],
+    (err, rows) => {
+      if (err) {
+        console.log("File Token Lookup Error:", err);
+        return res.status(500).json({ message: "Failed to prepare the file link" });
+      }
+
+      if (rows.length === 0) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      if (!canAccessApplication(req.user, rows[0])) {
+        return res.status(403).json({
+          message: "You do not have permission to view this file.",
+        });
+      }
+
+      return res.json({
+        token: auth.signFileToken({ userId: req.user.id, applicationId: id }),
+        expiresInSeconds: 300,
+      });
+    }
+  );
+};
+
+const requireAuthOrFileToken = (req, res, next) => {
+  if (req.user) return next();
+
+  if (auth.verifyFileToken(req.query.token, req.params.id)) {
+    // A valid scoped token is itself the proof of access: it is only issued
+    // after getApplicationFileToken has checked ownership for this exact id.
+    req.fileTokenGranted = true;
+    return next();
+  }
+
+  return res.status(401).json({
+    message: "Please log in to continue.",
+    code: "UNAUTHENTICATED",
+  });
+};
+
+// Surfaces multer's limits as a clean 400 instead of an unhandled throw.
+const uploadApplicationFiles = (req, res, next) => {
   applicationUpload.fields([
     { name: "attachment", maxCount: 1 },
     { name: "attachments", maxCount: 10 },
-  ]),
-  createApplication
-);
-app.get("/applications", serveClientApp, getApplications);
-app.get("/applications/student", serveClientApp, getStudentApplications);
-app.put("/applications/:id/status", updateApplicationStatus);
-app.get("/applications/:id/file", getApplicationFile);
-app.get("/applications/:id/files/download", getApplicationFilesArchive);
-app.delete("/applications/:id", deleteApplication);
-app.get("/admin/dashboard-stats", getAdminDashboardStats);
-app.get("/admin/recent-activity", getAdminRecentActivity);
+  ])(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        message:
+          err.code === "LIMIT_FILE_SIZE"
+            ? "Each requirement file must be under 10 MB."
+            : err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE"
+              ? "You can upload up to 10 requirement files."
+              : err.message || "Unable to upload your files",
+      });
+    }
 
-app.post(
-  "/api/applications",
-  applicationUpload.fields([
-    { name: "attachment", maxCount: 1 },
-    { name: "attachments", maxCount: 10 },
-  ]),
-  createApplication
-);
-app.get("/api/applications", getApplications);
-app.get("/api/applications/student", getStudentApplications);
-app.put("/api/applications/:id/status", updateApplicationStatus);
-app.get("/api/applications/:id/file", getApplicationFile);
-app.get("/api/applications/:id/files/download", getApplicationFilesArchive);
-app.delete("/api/applications/:id", deleteApplication);
-app.get("/api/admin/dashboard-stats", getAdminDashboardStats);
-app.get("/api/admin/recent-activity", getAdminRecentActivity);
+    return next();
+  });
+};
 
-// Avatars and other uploads used to be served straight off disk. They now live
-// in Supabase Storage, so the same public URL shape is kept and proxied through
-// instead — that way the client's getUploadUrl() needs no change.
+// ------------------------------------------------------------------
+// Routes
+// ------------------------------------------------------------------
+// Every endpoint is declared once, under /api, with the guard it needs. The
+// previous version registered each route twice — once bare, once prefixed —
+// which doubled the surface that had to be secured and made it easy to protect
+// one copy and forget the other.
+const api = express.Router();
+
+// Public: no session needed.
+api.post("/register", registerUser);
+api.post("/login", loginUser);
+api.post("/password/forgot", requestPasswordReset);
+api.post("/password/reset", resetPassword);
+
+// Signed in, any role.
+api.get("/me", requireAuth, getCurrentUser);
+api.post("/password/change", requireAuth, changePassword);
+api.put("/users/profile", requireAuth, updateUserProfile);
+api.put("/users/avatar", requireAuth, uploadAvatarPhoto, updateUserAvatar);
+api.post("/users/avatar", requireAuth, uploadAvatarPhoto, updateUserAvatar);
+api.get("/scholarships", requireAuth, getScholarships);
+api.get("/announcements", requireAuth, getAnnouncements);
+
+// Students file and track their own applications.
+api.post("/applications", requireRole("Student"), uploadApplicationFiles, createApplication);
+api.get("/applications/student", requireAuth, getStudentApplications);
+
+// Owner or admin. The file routes also accept a scoped ?token= because browsers
+// cannot attach an Authorization header to <a href> or <img src>.
+api.get("/applications/:id/file-token", requireAuth, getApplicationFileToken);
+api.get("/applications/:id/file", requireAuthOrFileToken, getApplicationFile);
+api.get(
+  "/applications/:id/files/download",
+  requireAuthOrFileToken,
+  getApplicationFilesArchive
+);
+
+// Admin only.
+api.get("/applications", requireRole("Admin"), getApplications);
+api.put("/applications/:id/status", requireRole("Admin"), updateApplicationStatus);
+api.delete("/applications/:id", requireRole("Admin"), deleteApplication);
+api.post("/scholarships", requireRole("Admin"), createScholarship);
+api.put("/scholarships/:id", requireRole("Admin"), updateScholarship);
+api.delete("/scholarships/:id", requireRole("Admin"), deleteScholarship);
+api.post("/announcements", requireRole("Admin"), createAnnouncement);
+api.put("/announcements/:id", requireRole("Admin"), updateAnnouncement);
+api.get("/admin/dashboard-stats", requireRole("Admin"), getAdminDashboardStats);
+api.get("/admin/recent-activity", requireRole("Admin"), getAdminRecentActivity);
+
+app.use("/api", api);
+
+// Avatars used to be served straight off disk. They now live in Supabase
+// Storage, so the same public URL shape is kept and proxied through instead —
+// that way the client's getUploadUrl() needs no change.
+//
+// Only avatars are served here. This route used to hand out any object key,
+// including applications/<student>/…, which meant a guessed or shared URL
+// exposed another student's uploaded documents to anyone. Those now go through
+// /api/applications/:id/file, which checks ownership.
 app.get("/uploads/*objectPath", (req, res) => {
   const objectPath = Array.isArray(req.params.objectPath)
     ? req.params.objectPath.join("/")
     : req.params.objectPath || "";
 
   if (!objectPath || objectPath.includes("..")) {
+    return res.status(404).json({ message: "File not found" });
+  }
+
+  if (!objectPath.startsWith("avatars/")) {
     return res.status(404).json({ message: "File not found" });
   }
 
@@ -2081,6 +2749,29 @@ app.get(/.*/, serveClientApp, (req, res) => {
   res.status(404).json({
     message: "Not found",
   });
+});
+
+// Last stop for anything thrown or passed to next(). Without it Express prints
+// a stack trace into the response body, which tells an attacker about the file
+// layout and dependency versions.
+// eslint-disable-next-line no-unused-vars -- Express detects a handler as an
+// error handler by its arity, so `next` must stay in the signature.
+app.use((err, req, res, next) => {
+  if (err?.message === "Origin not allowed by CORS") {
+    return res.status(403).json({ message: "This origin is not allowed to call the API." });
+  }
+
+  if (err?.type === "entity.too.large") {
+    return res.status(413).json({ message: "That request was too large." });
+  }
+
+  if (err?.type === "entity.parse.failed") {
+    return res.status(400).json({ message: "That request body was not valid JSON." });
+  }
+
+  console.log("Unhandled Error:", err?.stack || err);
+
+  return res.status(500).json({ message: "Something went wrong. Please try again." });
 });
 
 // Vercel imports this module and drives it as a serverless function, so the

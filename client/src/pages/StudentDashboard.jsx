@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import api, { getUploadUrl } from "../api";
+import api, { getStoredUser, getUploadUrl } from "../api";
 import { getSavedSettings, subscribeToSettings } from "../settings";
 import {
   buttonSecondaryStyle,
@@ -71,7 +71,7 @@ const WELCOME_CONFETTI_PARTICLES = [
 
 const getCurrentUser = () => {
   try {
-    return JSON.parse(localStorage.getItem("currentUser"));
+    return getStoredUser();
   } catch {
     return null;
   }
@@ -117,9 +117,7 @@ const StudentDashboard = () => {
 
         if (userEmail) {
           requests.push(
-            api.get("/applications/student", {
-              params: { email: userEmail },
-            })
+            api.get("/applications/student")
           );
         }
 

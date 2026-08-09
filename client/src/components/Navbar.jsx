@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import api, { getUploadUrl } from "../api";
+import api, { clearSession, getStoredUser, getUploadUrl } from "../api";
 import { DEFAULT_SETTINGS, getSavedSettings, saveSettings } from "../settings";
-import { buttonPrimaryStyle, colors, mutedTextStyle, statusPillStyle } from "../sharedStyles";
+import {
+  buttonPrimaryStyle,
+  buttonSecondaryStyle,
+  colors,
+  inputStyle,
+  mutedTextStyle,
+  statusPillStyle,
+} from "../sharedStyles";
 
 const USER_CHANGED_EVENT = "scholarHubUserChanged";
 
 const getCurrentUser = () => {
   try {
-    return JSON.parse(localStorage.getItem("currentUser"));
+    return getStoredUser();
   } catch {
     return null;
   }
@@ -104,6 +111,14 @@ const Navbar = () => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordNotice, setPasswordNotice] = useState(null);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
@@ -261,7 +276,7 @@ const Navbar = () => {
         const requests = [api.get("/announcements")];
 
         if (userEmail) {
-          requests.push(api.get("/applications/student", { params: { email: userEmail } }));
+          requests.push(api.get("/applications/student"));
         }
 
         const [announcementsResponse, applicationsResponse] = await Promise.all(requests);
@@ -360,7 +375,7 @@ const Navbar = () => {
   }, [loadNotifications, settings.autoRefresh]);
 
   const handleLogout = () => {
-    localStorage.removeItem("currentUser");
+    clearSession();
     setOpen(false);
     setProfileOpen(false);
     setProfileModalOpen(false);
@@ -398,16 +413,10 @@ const Navbar = () => {
       return;
     }
 
+    // The server updates whichever account the token identifies, so no id or
+    // email is sent with the photo.
     const formData = new FormData();
     formData.append("avatar", selectedAvatar);
-
-    if (user.id) {
-      formData.append("id", user.id);
-    }
-
-    if (user.email) {
-      formData.append("email", user.email);
-    }
 
     setAvatarSaving(true);
     setAvatarMessage("Saving photo...");
@@ -461,6 +470,43 @@ const Navbar = () => {
     setSettingsOpen(true);
   };
 
+  const handleChangePassword = () => {
+    setProfileOpen(false);
+    setProfileModalOpen(false);
+    setSettingsOpen(false);
+    setPasswordOpen(true);
+    setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    setPasswordNotice(null);
+  };
+
+  const submitPasswordChange = async (event) => {
+    event.preventDefault();
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordNotice({ type: "error", message: "The two new passwords do not match." });
+      return;
+    }
+
+    setPasswordSaving(true);
+
+    try {
+      const response = await api.post("/password/change", {
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+
+      setPasswordNotice({ type: "success", message: response.data.message });
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (error) {
+      setPasswordNotice({
+        type: "error",
+        message: error.response?.data?.message || "Failed to change password.",
+      });
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   const closeAccountModal = () => {
     setProfileModalOpen(false);
     setSettingsOpen(false);
@@ -502,8 +548,6 @@ const Navbar = () => {
 
     try {
       const response = await api.put("/users/profile", {
-        id: user?.id,
-        email: user?.email,
         fullname: cleanFullName,
         schoolIdNumber: cleanSchoolIdNumber,
         courseYear: user?.courseYear || user?.course_year || "",
@@ -691,6 +735,15 @@ const Navbar = () => {
                   </button>
                   <button
                     type="button"
+                    style={profileMenuItemStyle(hoveredItem === "password")}
+                    onMouseEnter={() => setHoveredItem("password")}
+                    onMouseLeave={() => setHoveredItem(null)}
+                    onClick={handleChangePassword}
+                  >
+                    Change Password
+                  </button>
+                  <button
+                    type="button"
                     style={profileLogoutItemStyle(hoveredItem === "logout")}
                     onMouseEnter={() => setHoveredItem("logout")}
                     onMouseLeave={() => setHoveredItem(null)}
@@ -848,6 +901,93 @@ const Navbar = () => {
               </button>
             </div>
           </aside>
+        </div>
+      )}
+
+      {passwordOpen && (
+        <div
+          style={profileOverlayStyle}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setPasswordOpen(false);
+            }
+          }}
+        >
+          <form style={passwordModalStyle} onSubmit={submitPasswordChange}>
+            <div style={profileModalHeaderStyle}>
+              <div>
+                <span style={modalEyebrowStyle}>Security</span>
+                <h2 style={profileModalTitleStyle}>Change Password</h2>
+                <p style={mutedTextStyle}>
+                  Use at least 8 characters, including a letter and a number.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close change password panel"
+                onClick={() => setPasswordOpen(false)}
+                style={profileCloseButtonStyle}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={passwordFieldsStyle}>
+              {[
+                ["Current password", "currentPassword"],
+                ["New password", "newPassword"],
+                ["Confirm new password", "confirmPassword"],
+              ].map(([label, field]) => (
+                <label key={field} style={passwordFieldStyle}>
+                  <span style={passwordFieldLabelStyle}>{label}</span>
+                  <input
+                    type="password"
+                    required
+                    autoComplete={
+                      field === "currentPassword" ? "current-password" : "new-password"
+                    }
+                    value={passwordForm[field]}
+                    onChange={(event) => {
+                      const { value } = event.target;
+                      setPasswordForm((current) => ({ ...current, [field]: value }));
+                      setPasswordNotice(null);
+                    }}
+                    style={passwordInputStyle}
+                  />
+                </label>
+              ))}
+            </div>
+
+            {passwordNotice && (
+              <p
+                style={
+                  passwordNotice.type === "success"
+                    ? passwordSuccessStyle
+                    : passwordErrorStyle
+                }
+              >
+                {passwordNotice.message}
+              </p>
+            )}
+
+            <div style={passwordFooterStyle}>
+              <button
+                type="button"
+                style={profileCancelButtonStyle}
+                onClick={() => setPasswordOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                style={profileDoneButtonStyle}
+                disabled={passwordSaving}
+              >
+                {passwordSaving ? "Saving..." : "Change password"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
@@ -1912,6 +2052,66 @@ const profileHintStyle = {
 const profileDoneButtonStyle = {
   ...buttonPrimaryStyle,
   boxShadow: "0 10px 24px rgba(249,115,22,0.25)",
+};
+
+const profileCancelButtonStyle = {
+  ...buttonSecondaryStyle,
+};
+
+const passwordModalStyle = {
+  ...profileModalStyle,
+  width: "min(440px, 100%)",
+};
+
+const passwordFieldsStyle = {
+  display: "grid",
+  gap: "12px",
+};
+
+const passwordFieldStyle = {
+  display: "grid",
+  gap: "6px",
+};
+
+const passwordFieldLabelStyle = {
+  fontSize: "13px",
+  fontWeight: "700",
+  color: colors.muted,
+};
+
+const passwordInputStyle = {
+  ...inputStyle,
+  height: "44px",
+};
+
+const passwordFooterStyle = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "10px",
+  flexWrap: "wrap",
+  marginTop: "4px",
+};
+
+const passwordMessageBaseStyle = {
+  margin: 0,
+  padding: "10px 12px",
+  borderRadius: "10px",
+  fontSize: "14px",
+  fontWeight: "600",
+};
+
+const passwordErrorStyle = {
+  ...passwordMessageBaseStyle,
+  background: "#fee2e2",
+  color: "#b91c1c",
+  border: "1px solid #fecaca",
+};
+
+const passwordSuccessStyle = {
+  ...passwordMessageBaseStyle,
+  background: "#dcfce7",
+  color: "#166534",
+  border: "1px solid #bbf7d0",
 };
 
 const settingsGridStyle = {

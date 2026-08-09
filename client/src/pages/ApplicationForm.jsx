@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import api from "../api";
+import api, { getStoredUser } from "../api";
 import {
   buttonPrimaryStyle,
   buttonSecondaryStyle,
@@ -17,7 +17,7 @@ import {
 
 const getCurrentUser = () => {
   try {
-    return JSON.parse(localStorage.getItem("currentUser"));
+    return getStoredUser();
   } catch {
     return null;
   }
@@ -282,10 +282,11 @@ const ApplicationForm = () => {
 
     try {
       const submission = new FormData();
-      submission.append("userId", formData.userId);
+      // userId and email are deliberately not sent: the server files the
+      // application for whoever the token identifies, so passing them would
+      // only be misleading.
       submission.append("studentName", formData.studentName);
       submission.append("schoolIdNumber", formData.schoolIdNumber);
-      submission.append("email", formData.email);
       submission.append("courseYear", formData.courseYear);
       submission.append("contactNumber", formData.contactNumber);
       submission.append("scholarshipId", formData.scholarshipId);

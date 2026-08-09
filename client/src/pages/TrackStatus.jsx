@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import api, { getApiUrl } from "../api";
+import api, { getApplicationFileUrl, getStoredUser } from "../api";
 import {
   buttonSecondaryStyle,
   cardGridStyle,
@@ -18,7 +18,7 @@ const AUTO_SYNC_MS = 5000;
 
 const getCurrentUser = () => {
   try {
-    return JSON.parse(localStorage.getItem("currentUser"));
+    return getStoredUser();
   } catch {
     return null;
   }
@@ -45,8 +45,18 @@ const getApplicationFiles = (application) => {
   return [];
 };
 
-const getFileUrl = (application, fileIndex) =>
-  getApiUrl(`/applications/${application.id}/file?file=${fileIndex}`);
+// A plain href cannot carry the Authorization header, so the URL is built on
+// click: the server hands back a five-minute token scoped to this application
+// and the file opens with that in the query string.
+const openApplicationFile = async (application, fileIndex) => {
+  try {
+    const url = await getApplicationFileUrl(application.id, { fileIndex });
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch (error) {
+    console.log("File open error:", error);
+    alert("Unable to open that file right now. Please try again.");
+  }
+};
 
 const getApplicationFormFiles = (application) => getApplicationFiles(application).slice(0, 1);
 
@@ -135,9 +145,9 @@ const TrackStatus = () => {
           return;
         }
 
-        const response = await api.get("/applications/student", {
-          params: { email: user.email },
-        });
+        // No params: the server scopes this to the signed-in student from the
+        // token, so an email here would be ignored anyway.
+        const response = await api.get("/applications/student");
 
         setApplications(Array.isArray(response.data) ? response.data : []);
         setError("");
@@ -365,14 +375,15 @@ const TrackStatus = () => {
                                       {file.type || "File uploaded"}
                                     </p>
                                   </div>
-                                  <a
-                                    href={getFileUrl(selectedApplication, fileIndex)}
-                                    target="_blank"
-                                    rel="noreferrer"
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openApplicationFile(selectedApplication, fileIndex)
+                                    }
                                     style={fileButtonStyle}
                                   >
                                     View
-                                  </a>
+                                  </button>
                                 </div>
                               ))
                             ) : (
@@ -396,14 +407,15 @@ const TrackStatus = () => {
                                       {file.type || "File uploaded"}
                                     </p>
                                   </div>
-                                  <a
-                                    href={getFileUrl(selectedApplication, fileIndex + 1)}
-                                    target="_blank"
-                                    rel="noreferrer"
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openApplicationFile(selectedApplication, fileIndex + 1)
+                                    }
                                     style={fileButtonStyle}
                                   >
                                     View
-                                  </a>
+                                  </button>
                                 </div>
                               ))
                             ) : (

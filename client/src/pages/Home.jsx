@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import api, { getUploadUrl } from "../api";
+import api, { clearSession, getStoredUser, getUploadUrl } from "../api";
 import { DEFAULT_SETTINGS, getSavedSettings, saveSettings } from "../settings";
 import { colors } from "../sharedStyles";
 
@@ -8,7 +8,7 @@ const USER_CHANGED_EVENT = "scholarHubUserChanged";
 
 const getCurrentUser = () => {
   try {
-    return JSON.parse(localStorage.getItem("currentUser"));
+    return getStoredUser();
   } catch {
     return null;
   }
@@ -190,16 +190,10 @@ const Home = () => {
       return;
     }
 
+    // The server updates whichever account the token identifies, so no id or
+    // email is sent with the photo.
     const formData = new FormData();
     formData.append("avatar", selectedAvatar);
-
-    if (user.id) {
-      formData.append("id", user.id);
-    }
-
-    if (user.email) {
-      formData.append("email", user.email);
-    }
 
     setAvatarSaving(true);
     setAvatarMessage("Saving photo...");
@@ -243,8 +237,6 @@ const Home = () => {
 
     try {
       const response = await api.put("/users/profile", {
-        id: user?.id,
-        email: user?.email,
         fullname: cleanFullName,
         schoolIdNumber: cleanSchoolIdNumber,
         courseYear: user?.courseYear || user?.course_year || "",
@@ -274,7 +266,7 @@ const Home = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("currentUser");
+    clearSession();
     setProfileOpen(false);
     setProfileModalOpen(false);
     setSettingsOpen(false);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import api from "../api";
+import api, { getStoredUser } from "../api";
 import {
   buttonSecondaryStyle,
   cardStyle,
@@ -17,7 +17,7 @@ const AUTO_SYNC_MS = 5000;
 
 const getCurrentUser = () => {
   try {
-    return JSON.parse(localStorage.getItem("currentUser"));
+    return getStoredUser();
   } catch {
     return null;
   }
@@ -64,7 +64,7 @@ const Notifications = () => {
         const requests = [api.get("/announcements")];
 
         if (user?.email) {
-          requests.push(api.get("/applications/student", { params: { email: user.email } }));
+          requests.push(api.get("/applications/student"));
         }
 
         const [announcementsResponse, applicationsResponse] = await Promise.all(requests);

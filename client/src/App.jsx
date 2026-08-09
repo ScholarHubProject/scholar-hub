@@ -4,6 +4,9 @@ import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import NotFound from "./pages/NotFound";
 import StudentDashboard from "./pages/StudentDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import ManageScholarship from "./pages/ManageScholarship";
@@ -15,14 +18,14 @@ import Announcements from "./pages/Announcements";
 import ScholarshipPage from "./pages/ScholarshipPage";
 import TrackStatus from "./pages/TrackStatus";
 import { getSavedSettings } from "./settings";
+import { clearSession, getStoredUser, isLoggedIn } from "./api";
 
-const getCurrentUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem("currentUser"));
-  } catch {
-    return null;
-  }
-};
+// These guards only decide what to render. They are a convenience, not a
+// security boundary: the cached user lives in localStorage and the person
+// sitting at the browser can edit it. Every endpoint enforces the same rules
+// server side from the signed token, so faking a role here changes the view
+// and nothing else.
+const getCurrentUser = () => (isLoggedIn() ? getStoredUser() : null);
 
 const getDashboardPath = (role) => {
   const settings = getSavedSettings();
@@ -42,7 +45,7 @@ const RoleRoute = ({ allowedRole, children }) => {
   }
 
   if (!user.role) {
-    localStorage.removeItem("currentUser");
+    clearSession();
     return <Navigate to="/login" replace />;
   }
 
@@ -58,7 +61,7 @@ const LoginRoute = ({ children }) => {
 
   if (user) {
     if (!user.role) {
-      localStorage.removeItem("currentUser");
+      clearSession();
       return children;
     }
 
@@ -70,10 +73,13 @@ const LoginRoute = ({ children }) => {
 
 function App() {
   const location = useLocation();
-  const hideNavbar =
-    location.pathname === "/" ||
-    location.pathname === "/login" ||
-    location.pathname === "/register";
+  const hideNavbar = [
+    "/",
+    "/login",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
+  ].includes(location.pathname);
 
   return (
     <>
@@ -92,6 +98,8 @@ function App() {
         />
 
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         <Route
           path="/student-dashboard"
@@ -182,6 +190,8 @@ function App() {
             </RoleRoute>
           }
         />
+
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </>
   );
