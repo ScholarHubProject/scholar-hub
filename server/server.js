@@ -10,25 +10,62 @@ const app = express();
 const PORT = Number(process.env.PORT) || 5001;
 const HOST = "0.0.0.0";
 const clientDistPath = path.join(__dirname, "..", "client", "dist");
-const databaseUrl =
-  process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL;
+// Connection strings get pasted into hosting dashboards by hand, so the usual
+// copy/paste damage is repaired here rather than failing with an empty config:
+// surrounding quotes, a leading "DATABASE_URL=", and stray whitespace.
+const cleanDatabaseUrl = (value) => {
+  if (!value) return "";
+
+  let cleaned = String(value).trim();
+  cleaned = cleaned.replace(/^(?:DATABASE_URL|SUPABASE_DB_URL|POSTGRES_URL)\s*=\s*/i, "");
+  cleaned = cleaned.replace(/^["']|["']$/g, "").trim();
+
+  return cleaned;
+};
+
+// A password containing #, ?, / or spaces breaks URL parsing unless escaped.
+// Percent-encode whatever sits between the last ":" of the credentials and the
+// "@" that ends them, so a raw password still works.
+const encodeUrlPassword = (value) => {
+  const match = value.match(/^([a-zA-Z][\w+.-]*:\/\/)([^:/@]+):([^@]*)@(.+)$/);
+
+  if (!match) return value;
+
+  const [, scheme, user, password, rest] = match;
+
+  return `${scheme}${user}:${encodeURIComponent(decodeURIComponent(password))}@${rest}`;
+};
+
+const databaseUrl = cleanDatabaseUrl(
+  process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || process.env.POSTGRES_URL
+);
+// Surfaced by /api/db-status so a bad value can be diagnosed without shell access.
+let databaseUrlError = null;
 const databaseUrlConfig = (() => {
   if (!databaseUrl) return {};
 
-  try {
-    const parsedUrl = new URL(databaseUrl);
+  for (const candidate of [databaseUrl, encodeUrlPassword(databaseUrl)]) {
+    try {
+      const parsedUrl = new URL(candidate);
 
-    return {
-      host: parsedUrl.hostname,
-      port: parsedUrl.port ? Number(parsedUrl.port) : undefined,
-      user: decodeURIComponent(parsedUrl.username || ""),
-      password: decodeURIComponent(parsedUrl.password || ""),
-      database: parsedUrl.pathname.replace(/^\/+/, ""),
-    };
-  } catch (err) {
-    console.log("Database URL parse error:", err.message);
-    return {};
+      if (!parsedUrl.hostname) continue;
+
+      databaseUrlError = null;
+
+      return {
+        host: parsedUrl.hostname,
+        port: parsedUrl.port ? Number(parsedUrl.port) : undefined,
+        user: decodeURIComponent(parsedUrl.username || ""),
+        password: decodeURIComponent(parsedUrl.password || ""),
+        database: parsedUrl.pathname.replace(/^\/+/, ""),
+      };
+    } catch (err) {
+      databaseUrlError = err.message;
+    }
   }
+
+  console.log("Database URL parse error:", databaseUrlError);
+  return {};
 })();
 const DATABASE =
   process.env.DB_NAME || process.env.PGDATABASE || databaseUrlConfig.database || "postgres";
@@ -662,6 +699,15 @@ app.get("/api/db-status", (req, res) => {
     ssl: Boolean(dbConfig.ssl),
     passwordProvided: Boolean(dbConfig.password),
     configSource: databaseUrl ? "DATABASE_URL" : "individual DB_* variables",
+    // Set when DATABASE_URL was present but unusable, which otherwise looks
+    // identical to no configuration at all.
+    urlParseError: databaseUrlError,
+    urlLooksQuoted: /^["']|["']$/.test(
+      String(process.env.DATABASE_URL || "").trim()
+    ),
+    urlHasAssignmentPrefix: /^\s*DATABASE_URL\s*=/i.test(
+      String(process.env.DATABASE_URL || "")
+    ),
   };
 
   db.query("SELECT 1 AS ok", (err) => {
