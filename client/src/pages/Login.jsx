@@ -13,6 +13,32 @@ import {
   mutedTextStyle,
 } from "../sharedStyles";
 
+const iconProps = {
+  width: 20,
+  height: 20,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+};
+
+const EyeIcon = () => (
+  <svg {...iconProps}>
+    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const EyeOffIcon = () => (
+  <svg {...iconProps}>
+    <path d="M10.6 5.2A9.8 9.8 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.4 4.3M6.2 6.3A17.5 17.5 0 0 0 2 12s3.6 7 10 7a9.6 9.6 0 0 0 4.2-.9" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    <path d="m3 3 18 18" />
+  </svg>
+);
+
 const Login = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -20,6 +46,7 @@ const Login = () => {
   const [userType, setUserType] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   // ?expired=1 is set by the axios interceptor when a request comes back 401,
   // so the user is told why they were bounced back here.
   const [message, setMessage] = useState(
@@ -95,19 +122,31 @@ const Login = () => {
             }}
           />
 
-          <input
-            style={authInputStyle}
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setMessage("");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleLogin();
-            }}
-          />
+          <div style={passwordFieldStyle}>
+            <input
+              style={passwordInputStyle}
+              type={showPassword ? "text" : "password"}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setMessage("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleLogin();
+              }}
+            />
+
+            <button
+              type="button"
+              style={passwordToggleStyle}
+              onClick={() => setShowPassword((visible) => !visible)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              title={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+            </button>
+          </div>
 
           <select
             style={authInputStyle}
@@ -173,6 +212,32 @@ const authInputStyle = {
   ...inputStyle,
   height: "48px",
   background: "var(--sh-auth-field-bg)",
+};
+
+const passwordFieldStyle = {
+  position: "relative",
+};
+
+const passwordInputStyle = {
+  ...authInputStyle,
+  width: "100%",
+  paddingRight: "48px",
+};
+
+const passwordToggleStyle = {
+  position: "absolute",
+  top: "50%",
+  right: "12px",
+  transform: "translateY(-50%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "4px",
+  background: "transparent",
+  border: "none",
+  borderRadius: "6px",
+  color: colors.primary,
+  cursor: "pointer",
 };
 
 const messageStyle = {

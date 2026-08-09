@@ -118,25 +118,54 @@ const allowedOrigins = [
     .filter(Boolean),
 ];
 
+// The origin this request was served from, rebuilt from the proxy headers
+// Netlify sets. Browsers omit Origin on same-origin GETs but DO send it on
+// same-origin POSTs, so the site's own address has to be recognised or every
+// login from the deployed site is rejected as cross-origin.
+const getRequestOrigin = (req) => {
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+
+  if (!host) return null;
+
+  const protocol =
+    req.headers["x-forwarded-proto"] ||
+    (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
+
+  return `${protocol}://${host}`;
+};
+
+const isOriginAllowed = (origin, req) => {
+  if (!origin) return true; // No Origin header: same-origin GET, or a non-browser client.
+
+  const normalized = origin.replace(/\/+$/, "");
+
+  return normalized === getRequestOrigin(req) || allowedOrigins.includes(normalized);
+};
+
+// The delegate form is used instead of a plain options object because the
+// same-origin comparison above needs the request, which cors() does not pass
+// to the simpler `origin(origin, callback)` signature.
 app.use(
-  cors({
-    origin(origin, callback) {
-      // Same-origin browser requests and server-to-server calls send no Origin;
-      // in production the SPA and the API share an origin, so this is the
-      // normal case rather than an exception.
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin.replace(/\/+$/, ""))) {
-        return callback(null, true);
-      }
-
-      return callback(new Error("Origin not allowed by CORS"));
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    maxAge: 600,
+  cors((req, callback) => {
+    callback(null, {
+      origin: isOriginAllowed(req.headers.origin, req),
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
+      maxAge: 600,
+    });
   })
 );
+
+// cors() answers a rejected request by simply omitting the allow header, which
+// the browser reports as a vague network failure. A explicit 403 with a real
+// message is far easier to diagnose.
+app.use((req, res, next) => {
+  if (!isOriginAllowed(req.headers.origin, req)) {
+    return res.status(403).json({ message: "This origin is not allowed to call the API." });
+  }
+
+  return next();
+});
 
 // The security headers that matter for an API plus a static SPA. Written by hand
 // rather than pulling in helmet, which would add a dependency for six headers.
