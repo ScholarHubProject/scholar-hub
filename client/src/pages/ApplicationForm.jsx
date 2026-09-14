@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import api, { getStoredUser } from "../api";
 import { HeroBanner } from "../components/ui";
+import { FileDropZone } from "../components/fileUpload";
+import { CheckIcon, CrossIcon, FileIcon } from "../components/icons";
 import {
   buttonPrimaryStyle,
   buttonSecondaryStyle,
@@ -412,65 +414,68 @@ const ApplicationForm = () => {
 
               <div style={applicationFormUploadContainerStyle}>
                 <label style={fieldLabelStyle}>Upload Scholarship Application Form</label>
-                <input
-                  style={fileInputStyle}
-                  type="file"
+                <FileDropZone
                   accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.heic,.heif"
-                  onChange={(event) => {
-                    updateApplicationFormAttachment(event.target.files);
-                    event.target.value = "";
-                  }}
+                  title="Choose the completed application form"
+                  onFiles={updateApplicationFormAttachment}
                 />
                 <p style={fileHelpTextStyle}>
                   Upload the completed scholarship application form separately.
                 </p>
 
                 {applicationFormAttachment && (
-                  <div style={fileRowStyle}>
-                    <div style={fileInfoStyle}>
-                      <p style={fileSelectedTextStyle}>
-                        {applicationFormAttachment.file.name}
-                      </p>
-                      <span style={fileStatusStyle}>
-                        {applicationFormAttachment.checked
-                          ? "Ready to submit"
-                          : "Not included"}
+                  <div style={fileListStyle}>
+                    <div style={fileRowStyle}>
+                      <span style={fileGlyphStyle} aria-hidden="true">
+                        <FileIcon size={16} />
                       </span>
-                    </div>
-                    <div style={fileActionStyle}>
-                      <button
-                        type="button"
-                        style={fileViewButtonStyle}
-                        title="View file"
-                        aria-label="View file"
-                        onClick={() => openPreview(applicationFormAttachment)}
-                      >
-                        <EyeIcon />
-                      </button>
-                      <button
-                        type="button"
-                        style={
-                          applicationFormAttachment.checked
-                            ? checkedFileButtonStyle
-                            : fileCheckButtonStyle
-                        }
-                        title={
-                          applicationFormAttachment.checked ? "Included" : "Include file"
-                        }
-                        aria-label={
-                          applicationFormAttachment.checked ? "Included" : "Include file"
-                        }
-                        onClick={toggleApplicationFormAttachment}
-                      >
-                        ✓
-                      </button>
-                      <button
-                        type="button"
-                        style={fileRemoveButtonStyle}
-                        onClick={removeApplicationFormAttachment}
-                      >
-                        X
-                      </button>
+                      <div style={fileInfoStyle}>
+                        <p style={fileSelectedTextStyle}>
+                          {applicationFormAttachment.file.name}
+                        </p>
+                        <span style={fileStatusStyle}>
+                          {applicationFormAttachment.checked
+                            ? "Ready to submit"
+                            : "Not included"}
+                        </span>
+                      </div>
+                      <div style={fileActionStyle}>
+                        <button
+                          type="button"
+                          style={fileViewButtonStyle}
+                          title="View file"
+                          aria-label="View file"
+                          onClick={() => openPreview(applicationFormAttachment)}
+                        >
+                          <EyeIcon />
+                        </button>
+                        <button
+                          type="button"
+                          style={
+                            applicationFormAttachment.checked
+                              ? checkedFileButtonStyle
+                              : fileCheckButtonStyle
+                          }
+                          title={
+                            applicationFormAttachment.checked ? "Included" : "Include file"
+                          }
+                          aria-label={
+                            applicationFormAttachment.checked ? "Included" : "Include file"
+                          }
+                          onClick={toggleApplicationFormAttachment}
+                        >
+                          <CheckIcon size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          style={fileRemoveButtonStyle}
+                          onClick={removeApplicationFormAttachment}
+                          aria-label="Remove file"
+                          title="Remove file"
+                        >
+                          <CrossIcon size={15} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -534,15 +539,11 @@ const ApplicationForm = () => {
 
           <div style={fileGroupStyle}>
             <label style={labelStyle}>Upload Requirements</label>
-            <input
-              style={fileInputStyle}
-              type="file"
+            <FileDropZone
               multiple
               accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.heic,.heif"
-              onChange={(event) => {
-                updateAttachments(event.target.files);
-                event.target.value = "";
-              }}
+              title="Choose your requirements or drag them here"
+              onFiles={updateAttachments}
             />
             <p style={fileHelpTextStyle}>
               Upload all required documents, IDs, or image files. You may select more than one file.
@@ -552,6 +553,9 @@ const ApplicationForm = () => {
               <div style={fileListStyle}>
                 {attachments.map((item) => (
                   <div key={item.id} style={fileRowStyle}>
+                    <span style={fileGlyphStyle} aria-hidden="true">
+                      <FileIcon size={16} />
+                    </span>
                     <div style={fileInfoStyle}>
                       <p style={fileSelectedTextStyle}>
                         {item.file.webkitRelativePath || item.file.name}
@@ -577,14 +581,16 @@ const ApplicationForm = () => {
                         aria-label={item.checked ? "Included" : "Include file"}
                         onClick={() => toggleAttachment(item.id)}
                       >
-                        ✓
+                        <CheckIcon size={15} />
                       </button>
                       <button
                         type="button"
                         style={fileRemoveButtonStyle}
                         onClick={() => removeAttachment(item.id)}
+                        aria-label="Remove file"
+                        title="Remove file"
                       >
-                        X
+                        <CrossIcon size={15} />
                       </button>
                     </div>
                   </div>
@@ -759,13 +765,6 @@ const smallButtonStyle = {
   padding: "8px 12px",
 };
 
-const fileInputStyle = {
-  ...inputStyle,
-  paddingTop: "12px",
-  paddingBottom: "12px",
-  lineHeight: 1.4,
-};
-
 const fileHelpTextStyle = {
   ...mutedTextStyle,
   fontSize: "13px",
@@ -778,22 +777,37 @@ const fileSelectedTextStyle = {
   margin: 0,
 };
 
+// Selected files sit in the same grouped list the settings sheet uses:
+// one glass panel, a hairline between rows, each row a glyph, the name
+// and its state, and the three actions on the right.
 const fileListStyle = {
   display: "grid",
-  gap: "8px",
-  padding: "10px 12px",
-  borderRadius: "10px",
-  border: `1px solid ${colors.border}`,
-  background: colors.field,
+  borderRadius: "var(--sh-radius-md)",
+  border: `1px solid ${colors.glassBorder}`,
+  background: "var(--sh-glass-bg-soft)",
+  boxShadow: "var(--sh-glass-highlight)",
+  overflow: "hidden",
 };
 
 const fileRowStyle = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-  gap: "10px",
+  gridTemplateColumns: "auto minmax(0, 1fr) auto",
+  gap: "12px",
   alignItems: "center",
-  padding: "8px 0",
-  borderBottom: `1px solid ${colors.border}`,
+  padding: "10px 12px",
+  borderTop: `1px solid ${colors.border}`,
+  marginTop: "-1px",
+};
+
+const fileGlyphStyle = {
+  width: "32px",
+  height: "32px",
+  borderRadius: "10px",
+  display: "grid",
+  placeItems: "center",
+  background: colors.primarySoft,
+  color: colors.primaryDark,
+  flex: "0 0 auto",
 };
 
 const fileInfoStyle = {
@@ -822,6 +836,7 @@ const fileCheckButtonStyle = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+  boxShadow: "none",
 };
 
 const checkedFileButtonStyle = {
@@ -839,15 +854,10 @@ const fileViewButtonStyle = {
 };
 
 const fileRemoveButtonStyle = {
+  ...fileCheckButtonStyle,
   background: "transparent",
-  color: colors.primary,
-  border: "none",
-  borderRadius: "999px",
-  padding: "7px 10px",
-  fontWeight: "700",
-  fontSize: "16px",
-  lineHeight: 1,
-  cursor: "pointer",
+  border: "1px solid transparent",
+  color: "var(--viz-critical)",
 };
 
 const previewOverlayStyle = {

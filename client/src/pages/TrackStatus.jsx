@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import api, { getApplicationFileUrl, getStoredUser } from "../api";
 import { HeroBanner } from "../components/ui";
+import { FileDropZone } from "../components/fileUpload";
 import {
   buttonDangerStyle,
   buttonPrimaryStyle,
@@ -609,25 +610,18 @@ const TrackStatus = () => {
                                 coordinator to delete the whole application. */}
                             {isEditable(selectedApplication) && (
                               <div style={uploadRowStyle}>
-                                <input
-                                  ref={fileInputRef}
-                                  type="file"
+                                <FileDropZone
+                                  compact
                                   multiple
+                                  inputRef={fileInputRef}
                                   accept=".pdf,.doc,.docx,image/jpeg,image/png,image/heic,image/heif,image/webp"
-                                  style={fileInputStyle}
-                                  disabled={uploading}
-                                  onChange={(event) =>
-                                    handleAddDocuments(
-                                      selectedApplication,
-                                      event.target.files
-                                    )
+                                  busy={uploading}
+                                  title="Add or replace a document"
+                                  hint={`PDF, Word or image files, up to ${MAX_REQUIREMENT_FILES} in total.`}
+                                  onFiles={(files) =>
+                                    handleAddDocuments(selectedApplication, files)
                                   }
                                 />
-                                <p style={progressFileMetaStyle}>
-                                  {uploading
-                                    ? "Uploading..."
-                                    : `PDF, Word or image files, up to ${MAX_REQUIREMENT_FILES} in total.`}
-                                </p>
                               </div>
                             )}
                           </div>
@@ -707,12 +701,6 @@ const uploadRowStyle = {
   marginTop: "12px",
   paddingTop: "12px",
   borderTop: `1px dashed ${colors.border}`,
-};
-
-const fileInputStyle = {
-  width: "100%",
-  fontSize: "13px",
-  color: colors.text,
 };
 
 const dialogFooterStyle = {

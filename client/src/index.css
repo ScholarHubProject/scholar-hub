@@ -1691,3 +1691,59 @@ a {
   border: 2px solid transparent;
   background-clip: padding-box;
 }
+
+/* ---- File drop zone ----------------------------------------------
+   The native input is kept for the picker and for assistive tech but
+   painted out of sight; the label around it carries every state. */
+.sh-dropzone-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.sh-dropzone:focus-within {
+  border-color: var(--sh-primary);
+  box-shadow: var(--sh-ring), var(--sh-glass-highlight);
+}
+
+.sh-dropzone.is-over {
+  border-style: solid;
+  border-color: var(--sh-primary);
+  background: rgba(var(--sh-primary-rgb), 0.1);
+  transform: scale(1.01);
+}
+
+.sh-dropzone.is-disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sh-dropzone:not(.is-disabled):hover {
+    border-color: rgba(var(--sh-primary-rgb), 0.8);
+    background: rgba(var(--sh-primary-rgb), 0.06);
+  }
+
+  .sh-dropzone:not(.is-disabled):hover .sh-dropzone-browse {
+    transform: translateY(-1px);
+    box-shadow: var(--sh-shadow-md);
+  }
+}
+
+/* The browse pill stacks under the copy once the row gets narrow. */
+@media (max-width: 480px) {
+  .sh-dropzone {
+    flex-wrap: wrap;
+  }
+
+  .sh-dropzone .sh-dropzone-browse {
+    margin-left: 58px;
+  }
+}

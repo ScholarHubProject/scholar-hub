@@ -237,6 +237,21 @@ export const SparkleIcon = (props) => (
   </Icon>
 );
 
+export const UploadIcon = (props) => (
+  <Icon {...props}>
+    <path d="M12 16V5" />
+    <path d="m7.5 9.5 4.5-4.5 4.5 4.5" />
+    <path d="M4 15.5v1.8A2.7 2.7 0 0 0 6.7 20h10.6a2.7 2.7 0 0 0 2.7-2.7v-1.8" />
+  </Icon>
+);
+
+export const FileIcon = (props) => (
+  <Icon {...props}>
+    <path d="M14 3H7.5A1.5 1.5 0 0 0 6 4.5v15A1.5 1.5 0 0 0 7.5 21h9a1.5 1.5 0 0 0 1.5-1.5V7l-4-4Z" />
+    <path d="M14 3v4h4" />
+  </Icon>
+);
+
 export const ScholarshipArt = ({ width = 260 }) => (
   <svg
     width={width}
