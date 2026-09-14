@@ -8,6 +8,7 @@ import {
   cardStyle,
   colors,
   eyebrowStyle,
+  glassStrongStyle,
   inputStyle,
   mutedTextStyle,
   narrowShellStyle,
@@ -825,9 +826,9 @@ const fileCheckButtonStyle = {
 
 const checkedFileButtonStyle = {
   ...fileCheckButtonStyle,
-  background: "#dcfce7",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
+  background: "var(--viz-good-wash)",
+  color: "var(--viz-good-ink)",
+  border: "1px solid var(--viz-good-line)",
 };
 
 const fileViewButtonStyle = {
@@ -856,12 +857,16 @@ const previewOverlayStyle = {
   display: "grid",
   placeItems: "center",
   padding: "clamp(12px, 4vw, 24px)",
-  background: "rgba(15, 23, 42, 0.58)",
-  backdropFilter: "blur(4px)",
+  background: "rgba(10, 12, 20, 0.4)",
+  backdropFilter: "blur(12px) saturate(1.2)",
+  WebkitBackdropFilter: "blur(12px) saturate(1.2)",
+  animation: "scholarHubFadeIn 180ms ease both",
 };
 
 const previewDialogStyle = {
   ...cardStyle,
+  ...glassStrongStyle,
+  animation: "scholarHubSheetIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both",
   width: "min(100%, 560px)",
   maxHeight: "86vh",
   display: "grid",
@@ -920,7 +925,7 @@ const previewFrameStyle = {
   height: "100%",
   border: "none",
   transformOrigin: "center",
-  background: colors.surface,
+  background: colors.surfaceSolid,
 };
 
 const previewFallbackStyle = {
@@ -942,8 +947,9 @@ const optionButtonStyle = {
 };
 
 const selectedOptionStyle = {
-  background: "#f97316",
+  background: "linear-gradient(135deg, var(--sh-primary), var(--sh-primary-deep))",
   color: "white",
+  borderColor: "transparent",
 };
 
 const noticeStyle = {
@@ -954,15 +960,15 @@ const noticeStyle = {
 };
 
 const successNoticeStyle = {
-  background: "#dcfce7",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
+  background: "var(--viz-good-wash)",
+  color: "var(--viz-good-ink)",
+  border: "1px solid var(--viz-good-line)",
 };
 
 const errorNoticeStyle = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "1px solid #fecaca",
+  background: "var(--viz-critical-wash)",
+  color: "var(--viz-critical-ink)",
+  border: "1px solid var(--viz-critical-line)",
 };
 
 export default ApplicationForm;

@@ -8,6 +8,7 @@ import {
   cardStyle,
   colors,
   eyebrowStyle,
+  glassStrongStyle,
   inputStyle,
   mutedTextStyle,
   pageHeaderStyle,
@@ -754,7 +755,10 @@ const deleteBtnStyle = {
 const modalOverlayStyle = {
   position: "fixed",
   inset: 0,
-  background: "rgba(31, 41, 55, 0.42)",
+  background: "rgba(10, 12, 20, 0.4)",
+  backdropFilter: "blur(12px) saturate(1.2)",
+  WebkitBackdropFilter: "blur(12px) saturate(1.2)",
+  animation: "scholarHubFadeIn 180ms ease both",
   display: "grid",
   placeItems: "center",
   padding: "clamp(12px, 4vw, 24px)",
@@ -763,6 +767,8 @@ const modalOverlayStyle = {
 
 const deleteDialogStyle = {
   ...cardStyle,
+  ...glassStrongStyle,
+  animation: "scholarHubSheetIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both",
   width: "min(100%, 460px)",
   display: "grid",
   gap: "14px",
@@ -795,20 +801,20 @@ const getApplicantStatusStyle = (status) => {
   const statusColors =
     normalizedStatus === "approved"
       ? {
-          background: "#dcfce7",
-          color: "#166534",
-          border: "1px solid #bbf7d0",
+          background: "var(--viz-good-wash)",
+          color: "var(--viz-good-ink)",
+          border: "1px solid var(--viz-good-line)",
         }
       : normalizedStatus === "rejected"
         ? {
-            background: "#fee2e2",
-            color: "#991b1b",
-            border: "1px solid #fecaca",
+            background: "var(--viz-critical-wash)",
+            color: "var(--viz-critical-ink)",
+            border: "1px solid var(--viz-critical-line)",
           }
         : {
-            background: "#ffedd5",
+            background: colors.primarySoft,
             color: colors.primaryDark,
-            border: "1px solid #fed7aa",
+            border: "1px solid rgba(var(--sh-primary-rgb), 0.3)",
           };
 
   return {
@@ -958,15 +964,15 @@ const noticeStyle = {
 };
 
 const successNoticeStyle = {
-  background: "#dcfce7",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
+  background: "var(--viz-good-wash)",
+  color: "var(--viz-good-ink)",
+  border: "1px solid var(--viz-good-line)",
 };
 
 const errorNoticeStyle = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "1px solid #fecaca",
+  background: "var(--viz-critical-wash)",
+  color: "var(--viz-critical-ink)",
+  border: "1px solid var(--viz-critical-line)",
 };
 
 export default ManageApplicants;

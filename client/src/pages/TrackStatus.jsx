@@ -9,6 +9,7 @@ import {
   cardStyle,
   colors,
   eyebrowStyle,
+  glassStrongStyle,
   mutedTextStyle,
   pageStyle,
   shellStyle,
@@ -726,8 +727,8 @@ const dialogFooterStyle = {
 };
 
 const actionNoticeTones = {
-  success: { background: "#dcfce7", color: "#166534", borderColor: "#bbf7d0" },
-  error: { background: "#fee2e2", color: "#b91c1c", borderColor: "#fecaca" },
+  success: { background: "var(--viz-good-wash)", color: "var(--viz-good-ink)", borderColor: "var(--viz-good-line)" },
+  error: { background: "var(--viz-critical-wash)", color: "var(--viz-critical-ink)", borderColor: "var(--viz-critical-line)" },
 };
 
 const actionNoticeStyle = (tone) => ({
@@ -748,12 +749,16 @@ const modalOverlayStyle = {
   display: "grid",
   placeItems: "center",
   padding: "clamp(12px, 4vw, 24px)",
-  background: "rgba(15, 23, 42, 0.58)",
-  backdropFilter: "blur(4px)",
+  background: "rgba(10, 12, 20, 0.4)",
+  backdropFilter: "blur(12px) saturate(1.2)",
+  WebkitBackdropFilter: "blur(12px) saturate(1.2)",
+  animation: "scholarHubFadeIn 180ms ease both",
 };
 
 const applicationDialogStyle = {
   ...cardStyle,
+  ...glassStrongStyle,
+  animation: "scholarHubSheetIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both",
   width: "min(100%, 720px)",
   maxHeight: "86vh",
   overflowY: "auto",

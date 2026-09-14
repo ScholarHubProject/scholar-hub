@@ -41,9 +41,11 @@ export const toneColor = (tone) =>
     warning: "var(--viz-warning)",
     serious: "var(--viz-serious)",
     critical: "var(--viz-critical)",
-    accent: "var(--viz-series-1)",
+    // The accent tone is UI, not a data series: it follows the tint chosen
+    // in Settings. Chart series keep their fixed slots below.
+    accent: "var(--sh-primary)",
     neutral: "var(--viz-ink-muted)",
-  })[tone] || "var(--viz-series-1)";
+  })[tone] || "var(--sh-primary)";
 
 export const toneWash = (tone) =>
   ({

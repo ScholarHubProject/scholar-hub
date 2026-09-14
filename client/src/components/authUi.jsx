@@ -9,6 +9,7 @@ import {
   mutedTextStyle,
 } from "../sharedStyles";
 import { CheckIcon, EyeIcon, EyeOffIcon, WarningIcon } from "./icons";
+import { ThemeToggle } from "./appearance";
 import { getPasswordChecks, getPasswordStrength } from "../authRules";
 
 // ---------------------------------------------------------------
@@ -22,6 +23,9 @@ import { getPasswordChecks, getPasswordStrength } from "../authRules";
 
 export const AuthShell = ({ title, subtitle, width = 430, logoLift = 26, children }) => (
   <div style={authWithLogoPageStyle}>
+    {/* There is no app bar on the sign-in screens, so the theme toggle
+        floats in the corner where the bar would have put it. */}
+    <ThemeToggle style={authThemeToggleStyle} />
     <img
       src="/design.png"
       alt=""
@@ -29,7 +33,10 @@ export const AuthShell = ({ title, subtitle, width = 430, logoLift = 26, childre
       style={{ ...authLogoStyle, transform: `translateY(${logoLift}px)` }}
     />
 
-    <div style={{ ...authCardStyle, width: `${width}px`, maxWidth: "100%", padding: "clamp(22px, 6vw, 34px)" }}>
+    <div
+      className="sh-glass-sheen sh-sheet-in"
+      style={{ ...authCardStyle, width: `${width}px`, maxWidth: "100%", padding: "clamp(22px, 6vw, 34px)" }}
+    >
       <h1 style={authTitleStyle}>{title}</h1>
       {subtitle && <p style={authSubtitleStyle}>{subtitle}</p>}
       {children}
@@ -442,6 +449,14 @@ const fieldShellStyle = {
   borderRadius: "var(--sh-radius-sm)",
   border: `1px solid ${colors.border}`,
   background: "var(--sh-auth-field-bg)",
+  boxShadow: "inset 0 1px 2px rgba(0, 0, 0, 0.04)",
+};
+
+const authThemeToggleStyle = {
+  position: "fixed",
+  top: "max(14px, env(safe-area-inset-top))",
+  right: "max(14px, env(safe-area-inset-right))",
+  zIndex: 20,
 };
 
 const fieldIconStyle = {
@@ -509,11 +524,11 @@ const capsLockStyle = {
 const segmentWrapStyle = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: "6px",
-  padding: "5px",
+  gap: "4px",
+  padding: "4px",
   borderRadius: "var(--sh-radius-md)",
-  border: `1px solid ${colors.border}`,
-  background: "var(--sh-auth-field-bg)",
+  background: "rgba(120, 120, 128, 0.14)",
+  boxShadow: "inset 0 0 0 0.5px rgba(0, 0, 0, 0.05)",
 };
 
 const segmentStyle = {
@@ -532,10 +547,10 @@ const segmentStyle = {
 
 const segmentSelectedStyle = {
   ...segmentStyle,
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  background: colors.surfaceSolid,
+  border: "1px solid transparent",
   color: colors.primaryDark,
-  boxShadow: "var(--sh-shadow-sm)",
+  boxShadow: "0 3px 8px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6)",
 };
 
 const messageBaseStyle = {
@@ -545,7 +560,7 @@ const messageBaseStyle = {
   gap: "8px",
   margin: 0,
   padding: "11px 14px",
-  borderRadius: "10px",
+  borderRadius: "var(--sh-radius-sm)",
   fontWeight: 700,
   fontSize: "13.5px",
   textAlign: "center",

@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api, { clearSession, getStoredUser, getUploadUrl } from "../api";
-import { DEFAULT_SETTINGS, getSavedSettings, saveSettings } from "../settings";
+import { DEFAULT_SETTINGS } from "../settings";
 import { updateSavedAccount } from "../savedAccounts";
 import {
   buttonPrimaryStyle,
   buttonSecondaryStyle,
   colors,
+  glassStrongStyle,
   inputStyle,
   mutedTextStyle,
   statusPillStyle,
 } from "../sharedStyles";
+import { AppearanceSettings, Switch, ThemeToggle } from "./appearance";
+import { useSettings } from "../useSettings";
 
 const USER_CHANGED_EVENT = "scholarHubUserChanged";
 
@@ -140,7 +143,10 @@ const Navbar = () => {
   const [profileHover, setProfileHover] = useState(false);
   const [notificationHover, setNotificationHover] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
-  const [settings, setSettings] = useState(getSavedSettings);
+  // Shared with the sun/moon toggle and every other page: the hook saves
+  // through settings.js and repaints the page, so a change here lands
+  // everywhere without the sheet having to be closed first.
+  const [settings, updateSettings] = useSettings();
   const [user, setUser] = useState(getCurrentUser);
   const [selectedAvatar, setSelectedAvatar] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
@@ -174,8 +180,6 @@ const Navbar = () => {
   const avatarLetter = (fullName || user?.role || "U").charAt(0).toUpperCase();
   const roleValue = user?.role || "Student";
   const emailValue = user?.email || "Not available";
-  const accentClass = settings.accent === "orange" ? "orange" : "amber";
-  const accentColor = accentClass === "orange" ? colors.primary : "#d97706";
   const avatarSrc = getUploadUrl(avatarPreview || user?.avatarPath || user?.avatar_path);
   const activeInfoPanel = sidebarInfoPanels.find(
     (panel) => panel.id === activeInfoPanelId
@@ -192,10 +196,6 @@ const Navbar = () => {
     window.dispatchEvent(new CustomEvent(USER_CHANGED_EVENT, { detail: nextUser }));
     return nextUser;
   };
-
-  useEffect(() => {
-    saveSettings(settings);
-  }, [settings]);
 
   useEffect(() => {
     const syncUserFromStorage = () => setUser(getCurrentUser());
@@ -492,17 +492,11 @@ const Navbar = () => {
   };
 
   const handleToggleChange = (key) => (event) => {
-    setSettings((current) => ({
-      ...current,
-      [key]: event.target.checked,
-    }));
+    updateSettings({ [key]: event.target.checked });
   };
 
   const handleSelectChange = (key) => (event) => {
-    setSettings((current) => ({
-      ...current,
-      [key]: event.target.value,
-    }));
+    updateSettings({ [key]: event.target.value });
   };
 
   const handleProfileFieldChange = (key) => (event) => {
@@ -635,6 +629,8 @@ const Navbar = () => {
 
         {user && (
           <div style={topbarActionsStyle} className="scholar-topbar-actions">
+            <ThemeToggle />
+
             {["Admin", "Student"].includes(user.role) && (
               <div ref={notificationsRef} style={notificationWrapStyle}>
                 <button
@@ -670,7 +666,7 @@ const Navbar = () => {
                 </button>
 
                 {notificationsOpen && (
-                  <div style={notificationPanelStyle}>
+                  <div style={notificationPanelStyle} className="sh-pop-in sh-thin-scroll">
                     <div style={notificationHeaderStyle}>
                       <div>
                         <span style={notificationEyebrowStyle}>
@@ -753,7 +749,7 @@ const Navbar = () => {
               </button>
 
               {profileOpen && (
-                <div style={profileMenuStyle}>
+                <div style={profileMenuStyle} className="sh-pop-in">
                   <button
                     type="button"
                     style={profileMenuItemStyle(hoveredItem === "profile")}
@@ -814,7 +810,7 @@ const Navbar = () => {
       </header>
 
       {open && (
-        <div style={sidebarStyle}>
+        <div style={sidebarStyle} className="sh-thin-scroll">
           {user && (
             <div style={sidebarProfileStyle}>
               <div style={largeAvatarStyle}>
@@ -916,7 +912,7 @@ const Navbar = () => {
             }
           }}
         >
-          <aside style={infoPanelStyle} aria-label={activeInfoPanel.title}>
+          <aside style={infoPanelStyle} className="sh-thin-scroll" aria-label={activeInfoPanel.title}>
             <div style={infoPanelHeaderStyle}>
               <div>
                 <span style={modalEyebrowStyle}>{activeInfoPanel.eyebrow}</span>
@@ -969,7 +965,7 @@ const Navbar = () => {
             }
           }}
         >
-          <form style={passwordModalStyle} onSubmit={submitPasswordChange}>
+          <form style={passwordModalStyle} className="sh-sheet-in sh-thin-scroll" onSubmit={submitPasswordChange}>
             <div style={profileModalHeaderStyle}>
               <div>
                 <span style={modalEyebrowStyle}>Security</span>
@@ -1058,6 +1054,7 @@ const Navbar = () => {
         >
           <form
             style={profileModalStyle}
+            className="sh-sheet-in sh-thin-scroll"
             onSubmit={async (event) => {
               event.preventDefault();
               if (profileModalOpen) {
@@ -1112,7 +1109,7 @@ const Navbar = () => {
                     />
                   </div>
                   <div style={profileHeroCopyStyle}>
-                    <span style={profileStatusPillStyle(accentColor)}>
+                    <span style={profileStatusPillStyle}>
                       Active account
                     </span>
                     <strong style={profileHeroNameStyle}>{fullName}</strong>
@@ -1179,180 +1176,114 @@ const Navbar = () => {
               </>
             ) : (
               <>
-                <div style={settingsGridStyle}>
-                  <label style={settingRowStyle(settings.compactMode)}>
-                    <span style={settingCopyStyle}>
-                      <strong style={settingTitleStyle}>Email notifications</strong>
-                      <span style={mutedTextStyle}>Get application and announcement updates.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.emailNotifications}
-                      onChange={handleToggleChange("emailNotifications")}
-                      style={switchStyle}
-                    />
-                  </label>
+                <AppearanceSettings
+                  settings={settings}
+                  onChange={updateSettings}
+                  compact={settings.compactMode}
+                />
 
-                  <label style={settingRowStyle(settings.compactMode)}>
-                    <span style={settingCopyStyle}>
-                      <strong style={settingTitleStyle}>Auto refresh</strong>
-                      <span style={mutedTextStyle}>Keep dashboard counts and feeds live.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.autoRefresh}
-                      onChange={handleToggleChange("autoRefresh")}
-                      style={switchStyle}
-                    />
-                  </label>
+                <section style={settingsGroupStyle}>
+                  <h3 style={settingsGroupTitleStyle}>Notifications</h3>
+                  <div className="sh-list">
+                    <label style={settingRowStyle(settings.compactMode)}>
+                      <span style={settingCopyStyle}>
+                        <strong style={settingTitleStyle}>Email notifications</strong>
+                        <span style={mutedTextStyle}>Get application and announcement updates.</span>
+                      </span>
+                      <Switch
+                        checked={settings.emailNotifications}
+                        onChange={handleToggleChange("emailNotifications")}
+                      />
+                    </label>
 
-                  <label style={settingRowStyle(settings.compactMode)}>
-                    <span style={settingCopyStyle}>
-                      <strong style={settingTitleStyle}>Announcement digest</strong>
-                      <span style={mutedTextStyle}>Bundle campus updates into a summary.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.announcementDigest}
-                      onChange={handleToggleChange("announcementDigest")}
-                      style={switchStyle}
-                    />
-                  </label>
+                    <label style={settingRowStyle(settings.compactMode)}>
+                      <span style={settingCopyStyle}>
+                        <strong style={settingTitleStyle}>Announcement digest</strong>
+                        <span style={mutedTextStyle}>Bundle campus updates into a summary.</span>
+                      </span>
+                      <Switch
+                        checked={settings.announcementDigest}
+                        onChange={handleToggleChange("announcementDigest")}
+                      />
+                    </label>
 
-                  <label style={settingRowStyle(settings.compactMode)}>
-                    <span style={settingCopyStyle}>
-                      <strong style={settingTitleStyle}>Dark mode</strong>
-                      <span style={mutedTextStyle}>Use the dark dashboard theme.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.darkMode}
-                      onChange={handleToggleChange("darkMode")}
-                      style={switchStyle}
-                    />
-                  </label>
+                    <label style={settingRowStyle(settings.compactMode)}>
+                      <span style={settingCopyStyle}>
+                        <strong style={settingTitleStyle}>Show status badges</strong>
+                        <span style={mutedTextStyle}>Highlight application and notification states.</span>
+                      </span>
+                      <Switch
+                        checked={settings.showStatusBadges}
+                        onChange={handleToggleChange("showStatusBadges")}
+                      />
+                    </label>
 
-                  <label style={settingRowStyle(settings.compactMode)}>
-                    <span style={settingCopyStyle}>
-                      <strong style={settingTitleStyle}>Compact mode</strong>
-                      <span style={mutedTextStyle}>Tighten spacing across dashboard cards.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.compactMode}
-                      onChange={handleToggleChange("compactMode")}
-                      style={switchStyle}
-                    />
-                  </label>
-
-                  <label style={settingRowStyle(settings.compactMode)}>
-                    <span style={settingCopyStyle}>
-                      <strong style={settingTitleStyle}>Show status badges</strong>
-                      <span style={mutedTextStyle}>Highlight application and notification states.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={settings.showStatusBadges}
-                      onChange={handleToggleChange("showStatusBadges")}
-                      style={switchStyle}
-                    />
-                  </label>
-
-                  <div style={selectFieldStyle(settings.compactMode)}>
-                    <label style={selectLabelStyle}>Accent color</label>
-                    <select
-                      value={settings.accent}
-                      onChange={handleSelectChange("accent")}
-                      style={selectStyle}
-                    >
-                      <option value="orange">Orange</option>
-                      <option value="amber">Amber</option>
-                    </select>
+                    <div style={selectRowStyle(settings.compactMode)}>
+                      <label htmlFor="sh-reminder-frequency" style={settingTitleStyle}>
+                        Reminder frequency
+                      </label>
+                      <select
+                        id="sh-reminder-frequency"
+                        value={settings.reminderFrequency}
+                        onChange={handleSelectChange("reminderFrequency")}
+                        className="sh-select"
+                        style={inlineSelectStyle}
+                      >
+                        <option value="Daily">Daily</option>
+                        <option value="Weekly">Weekly</option>
+                        <option value="Monthly">Monthly</option>
+                      </select>
+                    </div>
                   </div>
+                </section>
 
-                  <div style={selectFieldStyle(settings.compactMode)}>
-                    <label style={selectLabelStyle}>Reminder frequency</label>
-                    <select
-                      value={settings.reminderFrequency}
-                      onChange={handleSelectChange("reminderFrequency")}
-                      style={selectStyle}
-                    >
-                      <option value="Daily">Daily</option>
-                      <option value="Weekly">Weekly</option>
-                      <option value="Monthly">Monthly</option>
-                    </select>
-                  </div>
+                <section style={settingsGroupStyle}>
+                  <h3 style={settingsGroupTitleStyle}>Dashboard</h3>
+                  <div className="sh-list">
+                    <label style={settingRowStyle(settings.compactMode)}>
+                      <span style={settingCopyStyle}>
+                        <strong style={settingTitleStyle}>Auto refresh</strong>
+                        <span style={mutedTextStyle}>Keep dashboard counts and feeds live.</span>
+                      </span>
+                      <Switch
+                        checked={settings.autoRefresh}
+                        onChange={handleToggleChange("autoRefresh")}
+                      />
+                    </label>
 
-                  <div style={selectFieldStyle(settings.compactMode)}>
-                    <label style={selectLabelStyle}>Default dashboard</label>
-                    <select
-                      value={settings.defaultDashboard}
-                      onChange={handleSelectChange("defaultDashboard")}
-                      style={selectStyle}
-                    >
-                      <option value="Student Dashboard">Student Dashboard</option>
-                      <option value="Admin Dashboard">Admin Dashboard</option>
-                      <option value="Scholarships">Scholarships</option>
-                    </select>
-                  </div>
-                </div>
-
-                <section style={settingsSummaryStyle}>
-                  <div style={detailCardStyle}>
-                    <h3 style={detailTitleStyle}>Quick Settings Summary</h3>
-                    <div style={settingsSummaryGridStyle}>
-                      <div style={summaryItemStyle}>
-                        <span style={summaryLabelStyle}>Notifications</span>
-                        <strong style={summaryValueStyle}>
-                          {settings.emailNotifications ? "On" : "Off"}
-                        </strong>
-                      </div>
-                      <div style={summaryItemStyle}>
-                        <span style={summaryLabelStyle}>Auto refresh</span>
-                        <strong style={summaryValueStyle}>
-                          {settings.autoRefresh ? "On" : "Off"}
-                        </strong>
-                      </div>
-                      <div style={summaryItemStyle}>
-                        <span style={summaryLabelStyle}>Digest</span>
-                        <strong style={summaryValueStyle}>
-                          {settings.announcementDigest ? "On" : "Off"}
-                        </strong>
-                      </div>
-                      <div style={summaryItemStyle}>
-                        <span style={summaryLabelStyle}>Theme</span>
-                        <strong style={summaryValueStyle}>
-                          {settings.darkMode ? "Dark" : "Light"}
-                        </strong>
-                      </div>
-                      <div style={summaryItemStyle}>
-                        <span style={summaryLabelStyle}>Compact</span>
-                        <strong style={summaryValueStyle}>
-                          {settings.compactMode ? "On" : "Off"}
-                        </strong>
-                      </div>
+                    <div style={selectRowStyle(settings.compactMode)}>
+                      <label htmlFor="sh-default-dashboard" style={settingTitleStyle}>
+                        Default dashboard
+                      </label>
+                      <select
+                        id="sh-default-dashboard"
+                        value={settings.defaultDashboard}
+                        onChange={handleSelectChange("defaultDashboard")}
+                        className="sh-select"
+                        style={inlineSelectStyle}
+                      >
+                        <option value="Student Dashboard">Student Dashboard</option>
+                        <option value="Admin Dashboard">Admin Dashboard</option>
+                        <option value="Scholarships">Scholarships</option>
+                      </select>
                     </div>
                   </div>
                 </section>
 
                 <div style={settingsFooterStyle}>
-                  <div style={accentPreviewStyle(accentColor)}>
-                    <span style={accentDotStyle(accentColor)} />
-                    <span>Accent preview</span>
-                  </div>
                   <p style={settingsHintStyle}>
-                    Changes are saved locally and used across your current session.
+                    Saved on this device and applied straight away.
                   </p>
                   <div style={settingsActionsStyle}>
                     <button
                       type="button"
                       style={secondaryActionStyle}
-                      onClick={() => setSettings({ ...DEFAULT_SETTINGS })}
+                      onClick={() => updateSettings({ ...DEFAULT_SETTINGS })}
                     >
                       Reset
                     </button>
                     <button type="submit" style={profileDoneButtonStyle}>
-                      Save Changes
+                      Done
                     </button>
                   </div>
                 </div>
@@ -1421,6 +1352,9 @@ const utilityTermStyle = {
   border: "1px solid rgba(255, 255, 255, 0.16)",
 };
 
+// The app bar is the first sheet of glass on the page: content scrolls
+// underneath it and shows through, blurred, the way an iOS navigation
+// bar does. Fixed rather than sticky so the sidebar can hang off it.
 const topbarStyle = {
   position: "fixed",
   top: "var(--sh-utility-strip)",
@@ -1429,8 +1363,10 @@ const topbarStyle = {
   height: "78px",
   zIndex: 997,
   background: "var(--sh-topbar-bg)",
-  borderBottom: `1px solid ${colors.border}`,
-  boxShadow: "var(--sh-shadow-md)",
+  backdropFilter: "var(--sh-glass-filter-strong)",
+  WebkitBackdropFilter: "var(--sh-glass-filter-strong)",
+  borderBottom: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-glass-highlight), 0 10px 30px rgba(15, 23, 42, 0.06)",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -1439,13 +1375,11 @@ const topbarStyle = {
 };
 
 const hamburgerStyle = {
-  background: colors.primary,
-  color: "white",
-  border: "none",
-  borderRadius: "10px",
-  padding: "8px 11px",
+  ...buttonPrimaryStyle,
+  borderRadius: "14px",
+  padding: "8px 12px",
   fontSize: "18px",
-  boxShadow: "0 10px 25px rgba(249,115,22,0.28)",
+  lineHeight: 1,
 };
 
 const brandStyle = {
@@ -1470,7 +1404,7 @@ const brandLogoStyle = {
   flex: "0 0 auto",
   objectFit: "contain",
   display: "block",
-  filter: "drop-shadow(0 6px 12px rgba(124, 45, 18, 0.18))",
+  filter: "drop-shadow(0 6px 12px rgba(var(--sh-primary-rgb), 0.3))",
 };
 
 const brandTextWrapStyle = {
@@ -1512,17 +1446,19 @@ const notificationWrapStyle = {
 };
 
 const notificationButtonStyle = (hover, open) => ({
-  width: "clamp(40px, 10vw, 46px)",
-  height: "clamp(40px, 10vw, 46px)",
+  width: "clamp(40px, 10vw, 44px)",
+  height: "clamp(40px, 10vw, 44px)",
   borderRadius: "50%",
-  border: `1px solid ${colors.border}`,
-  background: hover || open ? colors.pageAlt : colors.page,
+  border: `1px solid ${colors.glassBorder}`,
+  background: hover || open ? "var(--sh-glass-bg-strong)" : "var(--sh-glass-bg)",
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
   color: colors.primary,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   position: "relative",
-  boxShadow: hover || open ? "0 14px 30px rgba(249,115,22,0.18)" : "0 8px 20px rgba(0,0,0,0.05)",
+  boxShadow: hover || open ? "var(--sh-shadow-md)" : "var(--sh-shadow-sm)",
   transform: hover || open ? "translateY(-1px)" : "translateY(0)",
   transition: "transform 180ms ease, box-shadow 180ms ease, background 180ms ease",
 });
@@ -1542,7 +1478,7 @@ const notificationCountStyle = {
   borderRadius: "999px",
   background: colors.primary,
   color: "white",
-  border: `2px solid ${colors.surface}`,
+  border: `2px solid ${colors.surfaceSolid}`,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1557,10 +1493,8 @@ const notificationPanelStyle = {
   width: "min(420px, calc(100vw - 32px))",
   maxHeight: "min(620px, calc(100vh - 96px))",
   overflowY: "auto",
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "18px",
-  boxShadow: "0 24px 60px rgba(0,0,0,0.18)",
+  ...glassStrongStyle,
+  borderRadius: "var(--sh-radius-lg)",
   padding: "18px",
   display: "grid",
   gap: "12px",
@@ -1602,9 +1536,9 @@ const notificationNoticeStyle = {
   margin: 0,
   padding: "10px 12px",
   borderRadius: "12px",
-  border: "1px solid #fecaca",
-  background: "#fee2e2",
-  color: "#991b1b",
+  border: "1px solid var(--viz-critical)",
+  background: "var(--viz-critical-wash)",
+  color: "var(--viz-critical-ink)",
   fontWeight: "700",
   fontSize: "13px",
 };
@@ -1675,10 +1609,12 @@ const profileStyle = {
   display: "flex",
   alignItems: "center",
   gap: "8px",
-  background: colors.page,
-  border: `1px solid ${colors.border}`,
+  background: "var(--sh-glass-bg)",
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
   borderRadius: "999px",
-  padding: "7px 12px 7px 7px",
+  padding: "5px 12px 5px 5px",
 };
 
 const profileWrapStyle = {
@@ -1689,16 +1625,17 @@ const profileButtonStyle = (hover, open) => ({
   ...profileStyle,
   cursor: "pointer",
   transition: "transform 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease",
-  background: hover || open ? colors.pageAlt : colors.page,
-  boxShadow: hover || open ? "0 14px 30px rgba(249,115,22,0.18)" : "0 8px 20px rgba(0,0,0,0.05)",
+  background: hover || open ? "var(--sh-glass-bg-strong)" : "var(--sh-glass-bg)",
+  boxShadow: hover || open ? "var(--sh-shadow-md)" : "var(--sh-shadow-sm)",
   transform: hover || open ? "translateY(-1px)" : "translateY(0)",
 });
 
 const avatarStyle = {
-  width: "38px",
-  height: "38px",
+  width: "36px",
+  height: "36px",
   borderRadius: "50%",
-  background: colors.primary,
+  background: "linear-gradient(135deg, var(--sh-primary), var(--sh-primary-deep))",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px rgba(var(--sh-primary-rgb), 0.3)",
   color: "white",
   display: "flex",
   alignItems: "center",
@@ -1744,11 +1681,9 @@ const profileMenuStyle = {
   position: "absolute",
   right: 0,
   top: "calc(100% + 10px)",
-  minWidth: "220px",
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "14px",
-  boxShadow: "var(--sh-shadow-lg)",
+  minWidth: "228px",
+  ...glassStrongStyle,
+  borderRadius: "var(--sh-radius-lg)",
   padding: "8px",
   display: "grid",
   gap: "6px",
@@ -1756,9 +1691,9 @@ const profileMenuStyle = {
 };
 
 const profileMenuItemStyle = (hover) => ({
-  background: hover ? colors.pageAlt : "transparent",
+  background: hover ? "rgba(var(--sh-primary-rgb), 0.12)" : "transparent",
   border: "none",
-  borderRadius: "10px",
+  borderRadius: "12px",
   textAlign: "left",
   padding: "10px 12px",
   color: hover ? colors.primaryDark : colors.text,
@@ -1772,22 +1707,24 @@ const profileLogoutItemStyle = (hover) => ({
   color: hover ? colors.primaryDark : colors.primaryDark,
 });
 
+// A floating sheet hung from the app bar rather than a full-height rail:
+// inset from the edges so the ambient wash shows around it, with the
+// same corner radius as a card.
 const sidebarStyle = {
   position: "fixed",
-  // Sits under the app bar, which now sits under the institutional strip.
-  top: "calc(70px + var(--sh-utility-strip))",
-  left: 0,
-  width: "min(290px, calc(100vw - 28px))",
-  height: "calc(100vh - 70px - var(--sh-utility-strip))",
-  background: colors.surface,
-  padding: "clamp(16px, 5vw, 22px)",
-  borderRight: `1px solid ${colors.border}`,
-  boxShadow: "4px 0 20px rgba(0,0,0,0.10)",
+  top: "calc(78px + 12px + var(--sh-utility-strip))",
+  left: "12px",
+  width: "min(300px, calc(100vw - 24px))",
+  maxHeight: "calc(100vh - 78px - 24px - var(--sh-utility-strip))",
+  overflowY: "auto",
+  ...glassStrongStyle,
+  borderRadius: "var(--sh-radius-xl)",
+  padding: "clamp(14px, 5vw, 18px)",
   zIndex: 998,
   display: "flex",
   flexDirection: "column",
-  gap: "18px",
-  animation: "scholarHubSidebarIn 220ms cubic-bezier(0.2, 0.9, 0.2, 1) both",
+  gap: "16px",
+  animation: "scholarHubSidebarIn 260ms cubic-bezier(0.2, 0.9, 0.2, 1) both",
 };
 
 const sidebarProfileStyle = {
@@ -1795,9 +1732,10 @@ const sidebarProfileStyle = {
   alignItems: "center",
   gap: "12px",
   background: "linear-gradient(90deg, var(--sh-header-start) 40%, var(--sh-header-end))",
-  border: `1px solid ${colors.border}`,
-  borderRadius: "18px",
-  padding: "16px",
+  border: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-glass-highlight)",
+  borderRadius: "var(--sh-radius-lg)",
+  padding: "14px",
 };
 
 const largeAvatarStyle = {
@@ -1843,9 +1781,9 @@ const linkStyle = {
   color: colors.text,
   textDecoration: "none",
   fontWeight: "600",
-  padding: "12px 14px",
-  borderRadius: "12px",
-  background: colors.page,
+  padding: "11px 14px",
+  borderRadius: "14px",
+  background: "var(--sh-glass-bg-soft)",
   border: "1px solid transparent",
   transition:
     "background 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease, transform 180ms ease",
@@ -1869,16 +1807,17 @@ const sidebarInfoArrowStyle = {
 
 const activeLinkStyle = {
   color: colors.primaryDark,
-  background: colors.primarySoft,
-  border: `1px solid ${colors.border}`,
-  boxShadow: "0 10px 24px rgba(249,115,22,0.13)",
+  background: "rgba(var(--sh-primary-rgb), 0.16)",
+  border: `1px solid rgba(var(--sh-primary-rgb), 0.3)`,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3), 0 10px 24px rgba(var(--sh-primary-rgb), 0.14)",
 };
 
 const infoOverlayStyle = {
   position: "fixed",
   inset: 0,
-  background: "rgba(15, 23, 42, 0.38)",
-  backdropFilter: "blur(5px)",
+  background: "rgba(10, 12, 20, 0.34)",
+  backdropFilter: "blur(10px) saturate(1.2)",
+  WebkitBackdropFilter: "blur(10px) saturate(1.2)",
   display: "flex",
   justifyContent: "flex-end",
   padding: "clamp(10px, 4vw, 18px)",
@@ -1890,10 +1829,8 @@ const infoPanelStyle = {
   width: "min(430px, 100%)",
   height: "100%",
   overflowY: "auto",
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "clamp(18px, 5vw, 24px)",
-  boxShadow: "-22px 0 70px rgba(0,0,0,0.24)",
+  ...glassStrongStyle,
+  borderRadius: "var(--sh-radius-xl)",
   padding: "clamp(16px, 5vw, 22px)",
   display: "grid",
   alignContent: "start",
@@ -1918,9 +1855,10 @@ const infoPanelTitleStyle = {
 const infoPanelSummaryStyle = {
   ...mutedTextStyle,
   padding: "18px",
-  borderRadius: "18px",
+  borderRadius: "var(--sh-radius-lg)",
   background: "linear-gradient(90deg, var(--sh-header-start) 40%, var(--sh-header-end))",
-  border: `1px solid ${colors.border}`,
+  border: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-glass-highlight)",
 };
 
 const infoPanelListStyle = {
@@ -1934,9 +1872,10 @@ const infoPanelItemStyle = {
   alignItems: "start",
   gap: "12px",
   color: colors.text,
-  background: colors.field,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "16px",
+  background: "var(--sh-glass-bg-soft)",
+  border: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-glass-highlight)",
+  borderRadius: "var(--sh-radius-md)",
   padding: "14px",
   lineHeight: 1.5,
   fontWeight: "650",
@@ -1948,7 +1887,7 @@ const infoPanelDotStyle = {
   borderRadius: "50%",
   marginTop: "7px",
   background: colors.primary,
-  boxShadow: "0 0 0 4px rgba(249,115,22,0.13)",
+  boxShadow: "0 0 0 4px rgba(var(--sh-primary-rgb), 0.16)",
 };
 
 const infoPanelFooterStyle = {
@@ -1967,8 +1906,10 @@ const infoPanelFooterTextStyle = {
 const profileOverlayStyle = {
   position: "fixed",
   inset: 0,
-  background: "rgba(15, 23, 42, 0.34)",
-  backdropFilter: "blur(4px)",
+  background: "rgba(10, 12, 20, 0.34)",
+  backdropFilter: "blur(10px) saturate(1.2)",
+  WebkitBackdropFilter: "blur(10px) saturate(1.2)",
+  animation: "scholarHubFadeIn 180ms ease both",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1977,16 +1918,14 @@ const profileOverlayStyle = {
 };
 
 const profileModalStyle = {
-  width: "min(560px, 100%)",
+  width: "min(600px, 100%)",
   maxHeight: "calc(100vh - 32px)",
   overflowY: "auto",
-  background: colors.surface,
-  borderRadius: "clamp(16px, 5vw, 18px)",
-  border: `1px solid ${colors.border}`,
-  boxShadow: "0 28px 70px rgba(0,0,0,0.2)",
-  padding: "clamp(14px, 4vw, 18px)",
+  ...glassStrongStyle,
+  borderRadius: "var(--sh-radius-xl)",
+  padding: "clamp(16px, 4vw, 22px)",
   display: "grid",
-  gap: "12px",
+  gap: "16px",
 };
 
 const profileModalHeaderStyle = {
@@ -2013,16 +1952,20 @@ const profileModalTitleStyle = {
   fontSize: "21px",
 };
 
+// The iOS close affordance: a small grey disc, not a bare glyph.
 const profileCloseButtonStyle = {
-  width: "38px",
-  height: "38px",
+  width: "32px",
+  height: "32px",
+  flex: "0 0 auto",
   borderRadius: "50%",
   border: "none",
-  background: "transparent",
-  color: colors.primary,
-  fontSize: "24px",
+  background: "rgba(120, 120, 128, 0.16)",
+  color: colors.muted,
+  fontSize: "20px",
   lineHeight: 1,
   cursor: "pointer",
+  display: "grid",
+  placeItems: "center",
 };
 
 const profileHeroCardStyle = (compact) => ({
@@ -2030,10 +1973,10 @@ const profileHeroCardStyle = (compact) => ({
   alignItems: "center",
   gap: "14px",
   padding: compact ? "12px" : "16px",
-  borderRadius: "16px",
+  borderRadius: "var(--sh-radius-lg)",
   background: "linear-gradient(90deg, var(--sh-header-start) 40%, var(--sh-header-end))",
-  border: `1px solid ${colors.border}`,
-  boxShadow: "var(--sh-shadow-md)",
+  border: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-glass-highlight)",
 });
 
 const profileAvatarStackStyle = {
@@ -2046,7 +1989,8 @@ const profileHeroAvatarStyle = {
   width: "64px",
   height: "64px",
   borderRadius: "50%",
-  background: colors.primary,
+  background: "linear-gradient(135deg, var(--sh-primary), var(--sh-primary-deep))",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 8px 18px rgba(var(--sh-primary-rgb), 0.3)",
   color: "white",
   display: "flex",
   alignItems: "center",
@@ -2063,17 +2007,18 @@ const profileHeroCopyStyle = {
   minWidth: 0,
 };
 
-const profileStatusPillStyle = (accentColor) => ({
+const profileStatusPillStyle = {
   display: "inline-flex",
   alignItems: "center",
   width: "fit-content",
-  padding: "5px 9px",
+  padding: "5px 10px",
   borderRadius: "999px",
-  background: accentColor,
+  background: "linear-gradient(135deg, var(--sh-primary), var(--sh-primary-deep))",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3)",
   color: "white",
   fontSize: "12px",
   fontWeight: "700",
-});
+};
 
 const profileHeroNameStyle = {
   color: colors.text,
@@ -2098,24 +2043,18 @@ const avatarActionsStyle = {
 };
 
 const avatarChooseButtonStyle = {
-  background: colors.surface,
-  color: colors.primary,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "10px",
-  padding: "9px 12px",
-  fontWeight: "700",
-  cursor: "pointer",
+  ...buttonSecondaryStyle,
+  padding: "9px 14px",
+  fontSize: "13px",
 };
 
 const avatarSaveButtonStyle = (disabled) => ({
-  background: disabled ? colors.border : colors.primary,
-  color: disabled ? colors.muted : "white",
-  border: "none",
-  borderRadius: "10px",
-  padding: "9px 12px",
-  fontWeight: "700",
+  ...buttonPrimaryStyle,
+  padding: "9px 14px",
+  fontSize: "13px",
+  opacity: disabled ? 0.55 : 1,
   cursor: disabled ? "not-allowed" : "pointer",
-  boxShadow: disabled ? "none" : "0 10px 24px rgba(249,115,22,0.22)",
+  boxShadow: disabled ? "none" : buttonPrimaryStyle.boxShadow,
 });
 
 const avatarMessageStyle = {
@@ -2141,14 +2080,9 @@ const profileFieldLabelStyle = {
 };
 
 const profileInputStyle = {
-  width: "100%",
-  padding: "9px 11px",
-  borderRadius: "10px",
-  border: `1px solid ${colors.border}`,
-  background: colors.field,
-  color: colors.text,
-  outlineColor: colors.primary,
-  fontWeight: "700",
+  ...inputStyle,
+  padding: "10px 12px",
+  fontWeight: "600",
 };
 
 const profileReadOnlyInputStyle = {
@@ -2180,7 +2114,6 @@ const profileHintStyle = {
 
 const profileDoneButtonStyle = {
   ...buttonPrimaryStyle,
-  boxShadow: "0 10px 24px rgba(249,115,22,0.25)",
 };
 
 const profileCancelButtonStyle = {
@@ -2231,22 +2164,30 @@ const passwordMessageBaseStyle = {
 
 const passwordErrorStyle = {
   ...passwordMessageBaseStyle,
-  background: "#fee2e2",
-  color: "#b91c1c",
-  border: "1px solid #fecaca",
+  background: "var(--viz-critical-wash)",
+  color: "var(--viz-critical-ink)",
+  border: "1px solid var(--viz-critical)",
 };
 
 const passwordSuccessStyle = {
   ...passwordMessageBaseStyle,
-  background: "#dcfce7",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
+  background: "var(--viz-good-wash)",
+  color: "var(--viz-good-ink)",
+  border: "1px solid var(--viz-good)",
 };
 
-const settingsGridStyle = {
+const settingsGroupStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))",
-  gap: "12px",
+  gap: "10px",
+};
+
+const settingsGroupTitleStyle = {
+  margin: "0 0 0 4px",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: colors.muted,
 };
 
 const settingRowStyle = (compact) => ({
@@ -2254,92 +2195,34 @@ const settingRowStyle = (compact) => ({
   justifyContent: "space-between",
   alignItems: "center",
   gap: "14px",
-  padding: compact ? "12px" : "16px",
-  borderRadius: "16px",
-  border: `1px solid ${colors.border}`,
-  background: colors.field,
+  padding: compact ? "11px 14px" : "14px 16px",
+  cursor: "pointer",
 });
+
+const selectRowStyle = (compact) => ({
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "14px",
+  flexWrap: "wrap",
+  padding: compact ? "11px 14px" : "14px 16px",
+});
+
+const inlineSelectStyle = {
+  width: "auto",
+  minWidth: "180px",
+  flex: "0 1 auto",
+  padding: "8px 34px 8px 12px",
+  fontSize: "13.5px",
+};
 
 const settingCopyStyle = {
   display: "grid",
-  gap: "6px",
+  gap: "4px",
+  minWidth: 0,
 };
 
 const settingTitleStyle = {
-  color: colors.text,
-};
-
-const switchStyle = {
-  width: "18px",
-  height: "18px",
-  accentColor: colors.primary,
-};
-
-const selectFieldStyle = (compact) => ({
-  display: "grid",
-  gap: "8px",
-  padding: compact ? "12px" : "16px",
-  borderRadius: "16px",
-  border: `1px solid ${colors.border}`,
-  background: colors.field,
-});
-
-const selectLabelStyle = {
-  color: colors.text,
-  fontWeight: "700",
-};
-
-const selectStyle = {
-  width: "100%",
-  padding: "12px 14px",
-  borderRadius: "10px",
-  border: `1px solid ${colors.border}`,
-  background: colors.surface,
-  color: colors.text,
-  outlineColor: colors.primary,
-};
-
-const settingsSummaryStyle = {
-  display: "grid",
-  gap: "12px",
-};
-
-const detailCardStyle = {
-  padding: "16px",
-  borderRadius: "16px",
-  border: `1px solid ${colors.border}`,
-  background: colors.surface,
-  display: "grid",
-  gap: "12px",
-};
-
-const detailTitleStyle = {
-  margin: 0,
-  color: colors.text,
-};
-
-const settingsSummaryGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(110px, 100%), 1fr))",
-  gap: "10px",
-};
-
-const summaryItemStyle = {
-  display: "grid",
-  gap: "4px",
-  padding: "12px 14px",
-  borderRadius: "14px",
-  border: `1px solid ${colors.border}`,
-  background: colors.field,
-};
-
-const summaryLabelStyle = {
-  color: colors.muted,
-  fontSize: "12px",
-  fontWeight: "700",
-};
-
-const summaryValueStyle = {
   color: colors.text,
   fontSize: "14px",
 };
@@ -2350,6 +2233,7 @@ const settingsFooterStyle = {
   alignItems: "center",
   gap: "14px",
   flexWrap: "wrap",
+  paddingTop: "4px",
 };
 
 const settingsHintStyle = {
@@ -2365,32 +2249,7 @@ const settingsActionsStyle = {
 };
 
 const secondaryActionStyle = {
-  background: colors.surface,
-  color: colors.primary,
-  padding: "12px 18px",
-  border: `1px solid ${colors.border}`,
-  borderRadius: "10px",
-  fontWeight: "700",
-  cursor: "pointer",
+  ...buttonSecondaryStyle,
 };
-
-const accentPreviewStyle = (accentColor) => ({
-  display: "flex",
-  alignItems: "center",
-  gap: "10px",
-  color: accentColor,
-  fontWeight: "700",
-});
-
-const accentDotStyle = (accentColor) => ({
-  width: "12px",
-  height: "12px",
-  borderRadius: "50%",
-  background: accentColor,
-  boxShadow:
-    accentColor === colors.primary
-      ? "0 0 0 4px rgba(249,115,22,0.14)"
-      : "0 0 0 4px rgba(217,119,6,0.14)",
-});
 
 export default Navbar;

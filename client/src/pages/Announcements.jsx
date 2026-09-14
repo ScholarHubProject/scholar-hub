@@ -8,6 +8,7 @@ import {
   cardStyle,
   colors,
   eyebrowStyle,
+  glassStrongStyle,
   inputStyle,
   mutedTextStyle,
   narrowShellStyle,
@@ -50,8 +51,8 @@ const toLocalInputValue = (value) => {
 };
 
 const WINDOW_TONES = {
-  Live: { background: "#dcfce7", color: "#166534", borderColor: "#bbf7d0" },
-  Scheduled: { background: "#dbeafe", color: "#1e40af", borderColor: "#bfdbfe" },
+  Live: { background: "var(--viz-good-wash)", color: "var(--viz-good-ink)", borderColor: "var(--viz-good-line)" },
+  Scheduled: { background: "var(--viz-info-wash)", color: "var(--viz-info-ink)", borderColor: "var(--viz-info-line)" },
   Expired: { background: "#f1f5f9", color: "#475569", borderColor: "#e2e8f0" },
 };
 
@@ -530,13 +531,17 @@ const modalOverlayStyle = {
   display: "grid",
   placeItems: "center",
   padding: "clamp(12px, 4vw, 24px)",
-  background: "rgba(15, 23, 42, 0.58)",
-  backdropFilter: "blur(4px)",
+  background: "rgba(10, 12, 20, 0.4)",
+  backdropFilter: "blur(12px) saturate(1.2)",
+  WebkitBackdropFilter: "blur(12px) saturate(1.2)",
+  animation: "scholarHubFadeIn 180ms ease both",
   zIndex: 1200,
 };
 
 const viewDialogStyle = {
   ...cardStyle,
+  ...glassStrongStyle,
+  animation: "scholarHubSheetIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both",
   width: "min(560px, 100%)",
   maxHeight: "86vh",
   overflowY: "auto",
@@ -583,9 +588,9 @@ const closeButtonStyle = {
 const noticeStyle = {
   ...cardStyle,
   marginBottom: "18px",
-  color: "#166534",
-  borderColor: "#bbf7d0",
-  background: "#dcfce7",
+  color: "var(--viz-good-ink)",
+  borderColor: "var(--viz-good-line)",
+  background: "var(--viz-good-wash)",
 };
 
 export default Announcements;

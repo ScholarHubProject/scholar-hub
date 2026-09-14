@@ -508,15 +508,15 @@ const noticeStyle = {
 };
 
 const successNoticeStyle = {
-  background: "#dcfce7",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
+  background: "var(--viz-good-wash)",
+  color: "var(--viz-good-ink)",
+  border: "1px solid var(--viz-good-line)",
 };
 
 const errorNoticeStyle = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "1px solid #fecaca",
+  background: "var(--viz-critical-wash)",
+  color: "var(--viz-critical-ink)",
+  border: "1px solid var(--viz-critical-line)",
 };
 
 export default ManageScholarship;

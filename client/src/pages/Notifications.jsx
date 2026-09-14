@@ -242,9 +242,9 @@ const metaLineStyle = {
 const noticeStyle = {
   ...cardStyle,
   marginBottom: "18px",
-  color: "#991b1b",
-  borderColor: "#fecaca",
-  background: "#fee2e2",
+  color: "var(--viz-critical-ink)",
+  borderColor: "var(--viz-critical-line)",
+  background: "var(--viz-critical-wash)",
 };
 
 const emptyStateStyle = {

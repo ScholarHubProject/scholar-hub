@@ -38,10 +38,10 @@ const ACTION_LABELS = {
 };
 
 const ENTITY_TONES = {
-  application: { background: "#dbeafe", color: "#1e40af", borderColor: "#bfdbfe" },
-  scholarship: { background: "#dcfce7", color: "#166534", borderColor: "#bbf7d0" },
-  announcement: { background: "#fef3c7", color: "#92400e", borderColor: "#fde68a" },
-  user: { background: "#ede9fe", color: "#5b21b6", borderColor: "#ddd6fe" },
+  application: { background: "var(--viz-info-wash)", color: "var(--viz-info-ink)", borderColor: "var(--viz-info-line)" },
+  scholarship: { background: "var(--viz-good-wash)", color: "var(--viz-good-ink)", borderColor: "var(--viz-good-line)" },
+  announcement: { background: "var(--viz-warning-wash)", color: "var(--viz-warning-ink)", borderColor: "var(--viz-warning-line)" },
+  user: { background: "var(--viz-purple-wash)", color: "var(--viz-purple-ink)", borderColor: "var(--viz-purple-line)" },
 };
 
 const formatTimestamp = (value) => {
@@ -368,9 +368,9 @@ const filterNoticeStyle = {
 const errorStyle = {
   ...cardStyle,
   marginBottom: "18px",
-  background: "#fee2e2",
-  color: "#b91c1c",
-  borderColor: "#fecaca",
+  background: "var(--viz-critical-wash)",
+  color: "var(--viz-critical-ink)",
+  borderColor: "var(--viz-critical-line)",
 };
 
 export default AuditLog;

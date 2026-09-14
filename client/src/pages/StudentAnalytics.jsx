@@ -798,7 +798,9 @@ const heroMetaStyle = {
 
 const heroCardStyle = {
   background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
   borderRadius: "14px",
   padding: "14px 18px",
   minWidth: "215px",
@@ -997,7 +999,9 @@ const actionCardStyle = {
   alignItems: "center",
   gap: "14px",
   background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
   borderRadius: "13px",
   padding: "14px 16px",
   textDecoration: "none",

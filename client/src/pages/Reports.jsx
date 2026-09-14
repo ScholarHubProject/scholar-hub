@@ -766,7 +766,9 @@ const heroFigureStyle = {
   padding: "14px 18px",
   borderRadius: "14px",
   background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
 };
 
 const heroLabelStyle = {
@@ -810,7 +812,9 @@ const noticeStyle = {
 // .sh-reports-layout, which is where the tablet breakpoint lives.
 const reportNavStyle = {
   background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
   borderRadius: "14px",
   padding: "16px 14px",
 };
@@ -849,7 +853,9 @@ const navButtonStyle = (isActive) => ({
 
 const tableCardStyle = {
   background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
   borderRadius: "16px",
   padding: "clamp(14px, 3vw, 20px)",
   boxShadow: "var(--sh-shadow-md)",

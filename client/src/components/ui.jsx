@@ -1,4 +1,4 @@
-import { colors, mutedTextStyle } from "../sharedStyles";
+import { colors, glassStyle, mutedTextStyle } from "../sharedStyles";
 import {
   Sparkline,
 } from "./charts";
@@ -339,14 +339,13 @@ export const CountUpValue = ({ value, format = formatNumber }) => (
 );
 
 const heroStyle = {
+  ...glassStyle,
   position: "relative",
   overflow: "hidden",
   background: "linear-gradient(112deg, var(--sh-header-start) 30%, var(--sh-header-end))",
-  border: `1px solid ${colors.border}`,
   borderRadius: "var(--sh-radius-xl)",
   padding: "clamp(20px, 4vw, 30px)",
   marginBottom: "20px",
-  boxShadow: "var(--sh-shadow-md)",
 };
 
 const heroBloomStyle = {
@@ -357,7 +356,7 @@ const heroBloomStyle = {
   height: "340px",
   borderRadius: "50%",
   background:
-    "radial-gradient(circle, rgba(249, 115, 22, 0.16), rgba(249, 115, 22, 0) 68%)",
+    "radial-gradient(circle, rgba(var(--sh-primary-rgb), 0.22), rgba(var(--sh-primary-rgb), 0) 68%)",
   pointerEvents: "none",
 };
 
@@ -377,9 +376,10 @@ const heroCopyStyle = {
 
 const heroPillStyle = {
   display: "inline-block",
-  background: colors.surface,
+  background: "var(--sh-glass-bg-strong)",
   color: colors.primaryDark,
-  border: `1px solid ${colors.border}`,
+  border: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-glass-highlight)",
   borderRadius: "999px",
   padding: "5px 13px",
   fontSize: "11.5px",
@@ -422,10 +422,8 @@ const heroActionsStyle = {
 };
 
 const insightCardStyle = {
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  ...glassStyle,
   borderRadius: "var(--sh-radius-lg)",
-  boxShadow: "var(--sh-shadow-md)",
   display: "flex",
   flexDirection: "column",
   alignItems: "stretch",
@@ -543,8 +541,7 @@ const sectionActionsStyle = {
 };
 
 const statTileStyle = {
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  ...glassStyle,
   borderRadius: "var(--sh-radius-md)",
   boxShadow: "var(--sh-shadow-sm)",
   display: "grid",
@@ -652,8 +649,7 @@ const calloutActionsStyle = {
 };
 
 const filterBarStyle = {
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  ...glassStyle,
   borderRadius: "var(--sh-radius-md)",
   padding: "16px 18px",
   display: "grid",
@@ -684,7 +680,7 @@ const filterLabelStyle = {
 const selectStyle = {
   width: "100%",
   padding: "9px 11px",
-  borderRadius: "9px",
+  borderRadius: "var(--sh-radius-sm)",
   border: `1px solid ${colors.border}`,
   background: colors.field,
   color: colors.text,
@@ -709,10 +705,10 @@ const filterSummaryStyle = {
 };
 
 const resetButtonStyle = {
-  background: "transparent",
+  background: "var(--sh-glass-bg-soft)",
   border: `1px solid ${colors.border}`,
   color: colors.primaryDark,
-  borderRadius: "9px",
+  borderRadius: "999px",
   padding: "7px 12px",
   fontSize: "12.5px",
   fontWeight: 700,
@@ -723,8 +719,8 @@ const keyValueListStyle = {
   display: "grid",
   gap: "1px",
   background: colors.border,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "12px",
+  border: `1px solid ${colors.glassBorder}`,
+  borderRadius: "var(--sh-radius-sm)",
   overflow: "hidden",
 };
 
@@ -733,7 +729,7 @@ const keyValueRowStyle = {
   alignItems: "center",
   justifyContent: "space-between",
   gap: "14px",
-  background: colors.surface,
+  background: "var(--sh-glass-bg-soft)",
   padding: "11px 14px",
 };
 

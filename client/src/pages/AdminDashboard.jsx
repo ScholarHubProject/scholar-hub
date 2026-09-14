@@ -677,7 +677,9 @@ const heroFigureStyle = {
   padding: "14px 18px",
   borderRadius: "14px",
   background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
 };
 
 const heroLabelStyle = {
@@ -716,7 +718,9 @@ const liveDotStyle = (refreshing, autoRefresh) => ({
   alignItems: "center",
   gap: "7px",
   background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
   borderRadius: "999px",
   padding: "5px 12px",
   fontSize: "12px",

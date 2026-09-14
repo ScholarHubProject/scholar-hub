@@ -1427,7 +1427,9 @@ const gaugeValueStyle = {
 
 const chartCardStyle = {
   background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
   borderRadius: "16px",
   padding: "clamp(16px, 3vw, 22px)",
   boxShadow: "var(--sh-shadow-md)",

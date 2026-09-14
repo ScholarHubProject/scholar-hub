@@ -2,6 +2,8 @@ export const colors = {
   page: "var(--sh-page)",
   pageAlt: "var(--sh-page-alt)",
   surface: "var(--sh-surface)",
+  surfaceSolid: "var(--sh-surface-solid)",
+  glassBorder: "var(--sh-glass-border)",
   field: "var(--sh-field)",
   primary: "var(--sh-primary)",
   primaryDark: "var(--sh-primary-dark)",
@@ -11,6 +13,28 @@ export const colors = {
   muted: "var(--sh-muted)",
   success: "var(--sh-success)",
   danger: "var(--sh-danger)",
+};
+
+// The frosted-glass material, as an inline fragment. A panel spreads
+// this in and then sets its own padding and radius; the fill, blur,
+// hairline and top highlight are what make it read as the same sheet
+// as the app bar and the sidebar. index.css owns the token values, so
+// "Reduce transparency" in Settings turns every one of these opaque
+// without a component changing.
+export const glassStyle = {
+  background: colors.surface,
+  border: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-shadow-md)",
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+};
+
+export const glassStrongStyle = {
+  ...glassStyle,
+  background: "var(--sh-glass-bg-strong)",
+  boxShadow: "var(--sh-shadow-lg)",
+  backdropFilter: "var(--sh-glass-filter-strong)",
+  WebkitBackdropFilter: "var(--sh-glass-filter-strong)",
 };
 
 export const pageStyle = {
@@ -50,7 +74,7 @@ export const authLogoStyle = {
   objectFit: "contain",
   margin: "0 auto",
   flex: "0 0 auto",
-  filter: "drop-shadow(0 18px 28px rgba(124, 45, 18, 0.2))",
+  filter: "drop-shadow(0 18px 28px rgba(var(--sh-primary-rgb), 0.28))",
 };
 
 export const shellStyle = {
@@ -70,21 +94,21 @@ export const narrowShellStyle = {
 // a user moving between an analytics page and an admin form does not
 // cross a visual seam.
 export const pageHeaderStyle = {
+  ...glassStyle,
   position: "relative",
   overflow: "hidden",
   background: "linear-gradient(112deg, var(--sh-header-start) 30%, var(--sh-header-end))",
-  border: `1px solid ${colors.border}`,
   borderRadius: "var(--sh-radius-xl)",
   padding: "clamp(20px, 4vw, 30px)",
   marginBottom: "20px",
-  boxShadow: "var(--sh-shadow-md)",
 };
 
 export const eyebrowStyle = {
   display: "inline-block",
-  background: colors.surface,
+  background: "var(--sh-glass-bg-strong)",
   color: colors.primaryDark,
-  border: `1px solid ${colors.border}`,
+  border: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-glass-highlight)",
   padding: "5px 13px",
   borderRadius: "999px",
   fontWeight: 800,
@@ -111,20 +135,19 @@ export const mutedTextStyle = {
 };
 
 export const cardStyle = {
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
+  ...glassStyle,
   borderRadius: "var(--sh-radius-lg)",
   padding: "clamp(18px, 4vw, 24px)",
-  boxShadow: "var(--sh-shadow-md)",
 };
 
 export const authCardStyle = {
   ...cardStyle,
   background: "var(--sh-auth-card-bg)",
   border: "1px solid var(--sh-auth-card-border)",
-  boxShadow: "0 26px 60px rgba(124, 45, 18, 0.22)",
-  backdropFilter: "blur(18px) saturate(1.12)",
-  WebkitBackdropFilter: "blur(18px) saturate(1.12)",
+  borderRadius: "var(--sh-radius-xl)",
+  boxShadow: "var(--sh-shadow-lg), 0 30px 80px rgba(var(--sh-primary-rgb), 0.16)",
+  backdropFilter: "var(--sh-glass-filter-strong)",
+  WebkitBackdropFilter: "var(--sh-glass-filter-strong)",
 };
 
 export const cardGridStyle = {
@@ -152,16 +175,21 @@ export const inputStyle = {
   background: colors.field,
   color: colors.text,
   fontSize: "14.5px",
+  boxShadow: "inset 0 1px 2px rgba(0, 0, 0, 0.04)",
   // The focus ring is a :focus-visible rule in index.css so it can carry
   // a box-shadow; an inline style cannot express a pseudo-class.
 };
 
+// Buttons are capsules, the iOS shape. The primary is a tinted gradient
+// with a light edge along the top; the secondary is a piece of the same
+// glass the cards are cut from, so it never fights the panel it sits on.
 export const buttonPrimaryStyle = {
-  background: "linear-gradient(135deg, var(--sh-primary), var(--sh-primary-dark))",
+  background:
+    "linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%), linear-gradient(135deg, var(--sh-primary), var(--sh-primary-deep))",
   color: "#ffffff",
-  padding: "12px 18px",
-  border: "none",
-  borderRadius: "var(--sh-radius-sm)",
+  padding: "12px 20px",
+  border: "1px solid rgba(255, 255, 255, 0.28)",
+  borderRadius: "999px",
   fontSize: "14px",
   fontWeight: 700,
   letterSpacing: "0.01em",
@@ -170,25 +198,29 @@ export const buttonPrimaryStyle = {
 };
 
 export const buttonSecondaryStyle = {
-  background: colors.surface,
+  background: "var(--sh-glass-bg-strong)",
   color: colors.primaryDark,
-  padding: "12px 18px",
-  border: `1px solid ${colors.border}`,
-  borderRadius: "var(--sh-radius-sm)",
+  padding: "12px 20px",
+  border: `1px solid ${colors.glassBorder}`,
+  borderRadius: "999px",
   fontSize: "14px",
   fontWeight: 700,
   boxShadow: "var(--sh-shadow-sm)",
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
   cursor: "pointer",
 };
 
 export const buttonDangerStyle = {
-  background: colors.danger,
+  background:
+    "linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 55%), var(--sh-danger)",
   color: "#ffffff",
-  padding: "9px 14px",
-  border: "none",
-  borderRadius: "var(--sh-radius-sm)",
+  padding: "9px 16px",
+  border: "1px solid rgba(255, 255, 255, 0.26)",
+  borderRadius: "999px",
   fontSize: "13.5px",
   fontWeight: 700,
+  boxShadow: "0 8px 20px rgba(220, 38, 38, 0.24)",
 };
 
 export const statusPillStyle = {
@@ -198,7 +230,8 @@ export const statusPillStyle = {
   width: "fit-content",
   background: colors.primarySoft,
   color: colors.primaryDark,
-  border: `1px solid ${colors.border}`,
+  border: `1px solid rgba(var(--sh-primary-rgb), 0.28)`,
+  boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.35)",
   borderRadius: "999px",
   padding: "5px 11px",
   fontSize: "12.5px",

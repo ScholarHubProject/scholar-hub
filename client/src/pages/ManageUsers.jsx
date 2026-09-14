@@ -565,9 +565,9 @@ const selfTagStyle = {
 };
 
 const stateToneStyles = {
-  success: { background: "#dcfce7", color: "#166534", borderColor: "#bbf7d0" },
-  warning: { background: "#fef3c7", color: "#92400e", borderColor: "#fde68a" },
-  danger: { background: "#fee2e2", color: "#b91c1c", borderColor: "#fecaca" },
+  success: { background: "var(--viz-good-wash)", color: "var(--viz-good-ink)", borderColor: "var(--viz-good-line)" },
+  warning: { background: "var(--viz-warning-wash)", color: "var(--viz-warning-ink)", borderColor: "var(--viz-warning-line)" },
+  danger: { background: "var(--viz-critical-wash)", color: "var(--viz-critical-ink)", borderColor: "var(--viz-critical-line)" },
 };
 
 const statePillStyle = (tone) => ({
@@ -586,9 +586,9 @@ const paginationStyle = {
 };
 
 const noticeToneStyles = {
-  success: { background: "#dcfce7", color: "#166534", borderColor: "#bbf7d0" },
-  warning: { background: "#fef3c7", color: "#92400e", borderColor: "#fde68a" },
-  error: { background: "#fee2e2", color: "#b91c1c", borderColor: "#fecaca" },
+  success: { background: "var(--viz-good-wash)", color: "var(--viz-good-ink)", borderColor: "var(--viz-good-line)" },
+  warning: { background: "var(--viz-warning-wash)", color: "var(--viz-warning-ink)", borderColor: "var(--viz-warning-line)" },
+  error: { background: "var(--viz-critical-wash)", color: "var(--viz-critical-ink)", borderColor: "var(--viz-critical-line)" },
 };
 
 const noticeStyle = (tone) => ({

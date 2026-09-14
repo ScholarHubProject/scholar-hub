@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { clearSession, getStoredUser, getUploadUrl } from "../api";
-import { DEFAULT_SETTINGS, getSavedSettings, saveSettings } from "../settings";
-import { colors } from "../sharedStyles";
+import { DEFAULT_SETTINGS } from "../settings";
+import {
+  buttonPrimaryStyle,
+  buttonSecondaryStyle,
+  colors,
+  glassStrongStyle,
+  glassStyle,
+  inputStyle,
+} from "../sharedStyles";
+import { AppearanceSettings, Switch, ThemeToggle } from "../components/appearance";
+import { useSettings } from "../useSettings";
 
 const USER_CHANGED_EVENT = "scholarHubUserChanged";
 
@@ -21,7 +30,7 @@ const Home = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileHover, setProfileHover] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
-  const [settings, setSettings] = useState(getSavedSettings);
+  const [settings, updateSettings] = useSettings();
   const [selectedAvatar, setSelectedAvatar] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
   const [avatarMessage, setAvatarMessage] = useState("");
@@ -51,7 +60,6 @@ const Home = () => {
   const avatarSrc = getUploadUrl(avatarPreview || user?.avatarPath || user?.avatar_path);
   const roleValue = user?.role || "Student";
   const emailValue = user?.email || "Not available";
-  const accentColor = settings.accent === "amber" ? "#d97706" : colors.primary;
 
   const syncStoredUser = (updates) => {
     const currentUser = getCurrentUser() || user || {};
@@ -61,10 +69,6 @@ const Home = () => {
     window.dispatchEvent(new CustomEvent(USER_CHANGED_EVENT, { detail: nextUser }));
     return nextUser;
   };
-
-  useEffect(() => {
-    saveSettings(settings);
-  }, [settings]);
 
   useEffect(
     () => () => {
@@ -140,17 +144,11 @@ const Home = () => {
   };
 
   const handleToggleChange = (key) => (event) => {
-    setSettings((current) => ({
-      ...current,
-      [key]: event.target.checked,
-    }));
+    updateSettings({ [key]: event.target.checked });
   };
 
   const handleSelectChange = (key) => (event) => {
-    setSettings((current) => ({
-      ...current,
-      [key]: event.target.value,
-    }));
+    updateSettings({ [key]: event.target.value });
   };
 
   const handleProfileFieldChange = (key) => (event) => {
@@ -302,6 +300,7 @@ const Home = () => {
 
           {user ? (
             <div style={accountActionsStyle}>
+              <ThemeToggle />
               <div ref={profileRef} style={profileWrapStyle}>
                 <button
                   type="button"
@@ -326,7 +325,7 @@ const Home = () => {
                 </button>
 
                 {profileOpen && (
-                  <div style={profileMenuStyle}>
+                  <div style={profileMenuStyle} className="sh-pop-in">
                     <button
                       type="button"
                       style={profileMenuItemStyle(hoveredItem === "profile")}
@@ -360,7 +359,8 @@ const Home = () => {
             </div>
           ) : (
             <>
-              <Link to="/login" style={orangeNavLinkStyle}>
+              <ThemeToggle />
+              <Link to="/login" style={loginLinkStyle}>
                 Login
               </Link>
               <Link to="/register" style={registerBtn}>
@@ -381,7 +381,7 @@ const Home = () => {
             }
           }}
         >
-          <section style={accountModalStyle}>
+          <section style={accountModalStyle} className="sh-sheet-in sh-thin-scroll">
             <div style={accountModalHeaderStyle}>
               <div>
                 <span style={modalEyebrowStyle}>
@@ -421,7 +421,7 @@ const Home = () => {
                     />
                   </div>
                   <div style={profileHeroCopyStyle}>
-                    <span style={profileStatusStyle(accentColor)}>Active account</span>
+                    <span style={profileStatusStyle}>Active account</span>
                     <strong style={profileHeroNameStyle}>{fullName}</strong>
                     <span style={profileHeroRoleStyle}>{roleValue} Workspace</span>
                     <div style={avatarActionsStyle}>
@@ -497,103 +497,94 @@ const Home = () => {
                   setSettingsOpen(false);
                 }}
               >
-                <div style={settingsGridStyle}>
-                  {[
-                    ["emailNotifications", "Email notifications", "Get application and announcement updates."],
-                    ["autoRefresh", "Auto refresh", "Keep dashboard counts and feeds live."],
-                    ["announcementDigest", "Announcement digest", "Bundle campus updates into a summary."],
-                    ["darkMode", "Dark mode", "Use the dark dashboard theme."],
-                    ["compactMode", "Compact mode", "Tighten spacing across dashboard cards."],
-                    ["showStatusBadges", "Show status badges", "Highlight application and notification states."],
-                  ].map(([key, title, copy]) => (
-                    <label key={key} style={settingRowStyle}>
+                <AppearanceSettings
+                  settings={settings}
+                  onChange={updateSettings}
+                  compact={settings.compactMode}
+                />
+
+                <section style={settingsGroupStyle}>
+                  <h3 style={settingsGroupTitleStyle}>Notifications</h3>
+                  <div className="sh-list">
+                    {[
+                      ["emailNotifications", "Email notifications", "Get application and announcement updates."],
+                      ["announcementDigest", "Announcement digest", "Bundle campus updates into a summary."],
+                      ["showStatusBadges", "Show status badges", "Highlight application and notification states."],
+                    ].map(([key, title, copy]) => (
+                      <label key={key} style={settingRowStyle}>
+                        <span style={settingCopyStyle}>
+                          <strong style={settingTitleStyle}>{title}</strong>
+                          <span style={modalCopyStyle}>{copy}</span>
+                        </span>
+                        <Switch checked={Boolean(settings[key])} onChange={handleToggleChange(key)} />
+                      </label>
+                    ))}
+
+                    <div style={selectRowStyle}>
+                      <label htmlFor="sh-home-reminder" style={settingTitleStyle}>
+                        Reminder frequency
+                      </label>
+                      <select
+                        id="sh-home-reminder"
+                        value={settings.reminderFrequency}
+                        onChange={handleSelectChange("reminderFrequency")}
+                        className="sh-select"
+                        style={inlineSelectStyle}
+                      >
+                        <option value="Daily">Daily</option>
+                        <option value="Weekly">Weekly</option>
+                        <option value="Monthly">Monthly</option>
+                      </select>
+                    </div>
+                  </div>
+                </section>
+
+                <section style={settingsGroupStyle}>
+                  <h3 style={settingsGroupTitleStyle}>Dashboard</h3>
+                  <div className="sh-list">
+                    <label style={settingRowStyle}>
                       <span style={settingCopyStyle}>
-                        <strong style={settingTitleStyle}>{title}</strong>
-                        <span style={modalCopyStyle}>{copy}</span>
+                        <strong style={settingTitleStyle}>Auto refresh</strong>
+                        <span style={modalCopyStyle}>Keep dashboard counts and feeds live.</span>
                       </span>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(settings[key])}
-                        onChange={handleToggleChange(key)}
-                        style={switchStyle}
+                      <Switch
+                        checked={settings.autoRefresh}
+                        onChange={handleToggleChange("autoRefresh")}
                       />
                     </label>
-                  ))}
 
-                  <div style={selectFieldStyle}>
-                    <label style={selectLabelStyle}>Accent color</label>
-                    <select
-                      value={settings.accent}
-                      onChange={handleSelectChange("accent")}
-                      style={selectStyle}
-                    >
-                      <option value="orange">Orange</option>
-                      <option value="amber">Amber</option>
-                    </select>
-                  </div>
-
-                  <div style={selectFieldStyle}>
-                    <label style={selectLabelStyle}>Reminder frequency</label>
-                    <select
-                      value={settings.reminderFrequency}
-                      onChange={handleSelectChange("reminderFrequency")}
-                      style={selectStyle}
-                    >
-                      <option value="Daily">Daily</option>
-                      <option value="Weekly">Weekly</option>
-                      <option value="Monthly">Monthly</option>
-                    </select>
-                  </div>
-
-                  <div style={selectFieldStyle}>
-                    <label style={selectLabelStyle}>Default dashboard</label>
-                    <select
-                      value={settings.defaultDashboard}
-                      onChange={handleSelectChange("defaultDashboard")}
-                      style={selectStyle}
-                    >
-                      <option value="Student Dashboard">Student Dashboard</option>
-                      <option value="Admin Dashboard">Admin Dashboard</option>
-                      <option value="Scholarships">Scholarships</option>
-                    </select>
-                  </div>
-                </div>
-
-                <section style={settingsSummaryStyle}>
-                  <h3 style={detailTitleStyle}>Quick Settings Summary</h3>
-                  <div style={settingsSummaryGridStyle}>
-                    {[
-                      ["Notifications", settings.emailNotifications ? "On" : "Off"],
-                      ["Auto refresh", settings.autoRefresh ? "On" : "Off"],
-                      ["Digest", settings.announcementDigest ? "On" : "Off"],
-                      ["Theme", settings.darkMode ? "Dark" : "Light"],
-                      ["Compact", settings.compactMode ? "On" : "Off"],
-                    ].map(([label, value]) => (
-                      <div key={label} style={summaryItemStyle}>
-                        <span style={summaryLabelStyle}>{label}</span>
-                        <strong style={summaryValueStyle}>{value}</strong>
-                      </div>
-                    ))}
+                    <div style={selectRowStyle}>
+                      <label htmlFor="sh-home-dashboard" style={settingTitleStyle}>
+                        Default dashboard
+                      </label>
+                      <select
+                        id="sh-home-dashboard"
+                        value={settings.defaultDashboard}
+                        onChange={handleSelectChange("defaultDashboard")}
+                        className="sh-select"
+                        style={inlineSelectStyle}
+                      >
+                        <option value="Student Dashboard">Student Dashboard</option>
+                        <option value="Admin Dashboard">Admin Dashboard</option>
+                        <option value="Scholarships">Scholarships</option>
+                      </select>
+                    </div>
                   </div>
                 </section>
 
                 <div style={settingsFooterStyle}>
-                  <div style={accentPreviewStyle(accentColor)}>
-                    <span style={accentDotStyle(accentColor)} />
-                    <span>Accent preview</span>
-                  </div>
                   <p style={settingsHintStyle}>
-                    Changes are saved locally and used across your current session.
+                    Saved on this device and applied straight away.
                   </p>
                   <button
                     type="button"
                     style={secondaryActionStyle}
-                    onClick={() => setSettings({ ...DEFAULT_SETTINGS })}
+                    onClick={() => updateSettings({ ...DEFAULT_SETTINGS })}
                   >
                     Reset
                   </button>
                   <button type="submit" style={modalDoneButtonStyle}>
-                    Save Changes
+                    Done
                   </button>
                 </div>
               </form>
@@ -670,15 +661,20 @@ const pageStyle = {
 };
 
 const navStyle = {
+  position: "sticky",
+  top: 0,
+  zIndex: 50,
   minHeight: "72px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "clamp(12px, 4vw, 28px)",
-  padding: "clamp(14px, 3vw, 18px) clamp(16px, 5vw, 32px)",
+  padding: "clamp(12px, 3vw, 16px) clamp(16px, 5vw, 32px)",
   background: "var(--sh-topbar-bg)",
-  borderBottom: `1px solid ${colors.border}`,
-  boxShadow: "var(--sh-shadow-sm)",
+  backdropFilter: "var(--sh-glass-filter-strong)",
+  WebkitBackdropFilter: "var(--sh-glass-filter-strong)",
+  borderBottom: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-glass-highlight), 0 10px 30px rgba(15, 23, 42, 0.05)",
   flexWrap: "wrap",
 };
 
@@ -731,14 +727,22 @@ const orangeNavLinkStyle = {
   fontWeight: "600",
 };
 
-const registerBtn = {
-  background: colors.primary,
-  color: "white",
+const loginLinkStyle = {
+  ...buttonSecondaryStyle,
+  display: "inline-flex",
+  alignItems: "center",
   padding: "10px 18px",
-  borderRadius: "8px",
   textDecoration: "none",
   whiteSpace: "nowrap",
-  fontWeight: "700",
+};
+
+const registerBtn = {
+  ...buttonPrimaryStyle,
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "10px 18px",
+  textDecoration: "none",
+  whiteSpace: "nowrap",
 };
 
 const accountActionsStyle = {
@@ -758,26 +762,29 @@ const profileBaseStyle = {
   display: "flex",
   alignItems: "center",
   gap: "8px",
-  background: colors.page,
-  border: `1px solid ${colors.border}`,
+  background: "var(--sh-glass-bg)",
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  border: `1px solid ${colors.glassBorder}`,
   borderRadius: "999px",
-  padding: "7px 12px 7px 7px",
+  padding: "5px 12px 5px 5px",
 };
 
 const profileButtonStyle = (hover, open) => ({
   ...profileBaseStyle,
   cursor: "pointer",
   transition: "transform 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease",
-  background: hover || open ? colors.pageAlt : colors.page,
-  boxShadow: hover || open ? "0 14px 30px rgba(249,115,22,0.18)" : "0 8px 20px rgba(0,0,0,0.05)",
+  background: hover || open ? "var(--sh-glass-bg-strong)" : "var(--sh-glass-bg)",
+  boxShadow: hover || open ? "var(--sh-shadow-md)" : "var(--sh-shadow-sm)",
   transform: hover || open ? "translateY(-1px)" : "translateY(0)",
 });
 
 const profileAvatarStyle = {
-  width: "38px",
-  height: "38px",
+  width: "36px",
+  height: "36px",
   borderRadius: "50%",
-  background: colors.primary,
+  background: "linear-gradient(135deg, var(--sh-primary), var(--sh-primary-deep))",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 10px rgba(var(--sh-primary-rgb), 0.3)",
   color: "white",
   display: "flex",
   alignItems: "center",
@@ -823,11 +830,9 @@ const profileMenuStyle = {
   position: "absolute",
   right: 0,
   top: "calc(100% + 10px)",
-  minWidth: "220px",
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "14px",
-  boxShadow: "var(--sh-shadow-lg)",
+  minWidth: "228px",
+  ...glassStrongStyle,
+  borderRadius: "var(--sh-radius-lg)",
   padding: "8px",
   display: "grid",
   gap: "6px",
@@ -835,9 +840,9 @@ const profileMenuStyle = {
 };
 
 const profileMenuItemStyle = (hover) => ({
-  background: hover ? colors.pageAlt : "transparent",
+  background: hover ? "rgba(var(--sh-primary-rgb), 0.12)" : "transparent",
   border: "none",
-  borderRadius: "10px",
+  borderRadius: "12px",
   textAlign: "left",
   padding: "10px 12px",
   color: hover ? colors.primaryDark : colors.text,
@@ -854,8 +859,10 @@ const profileLogoutItemStyle = (hover) => ({
 const accountOverlayStyle = {
   position: "fixed",
   inset: 0,
-  background: "rgba(15, 23, 42, 0.34)",
-  backdropFilter: "blur(4px)",
+  background: "rgba(10, 12, 20, 0.34)",
+  backdropFilter: "blur(10px) saturate(1.2)",
+  WebkitBackdropFilter: "blur(10px) saturate(1.2)",
+  animation: "scholarHubFadeIn 180ms ease both",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -864,13 +871,11 @@ const accountOverlayStyle = {
 };
 
 const accountModalStyle = {
-  width: "min(760px, 100%)",
+  width: "min(640px, 100%)",
   maxHeight: "calc(100vh - 32px)",
   overflowY: "auto",
-  background: colors.surface,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "18px",
-  boxShadow: "0 28px 70px rgba(0,0,0,0.2)",
+  ...glassStrongStyle,
+  borderRadius: "var(--sh-radius-xl)",
   padding: "clamp(16px, 4vw, 22px)",
 };
 
@@ -887,7 +892,7 @@ const modalEyebrowStyle = {
   width: "fit-content",
   background: colors.primarySoft,
   color: colors.primaryDark,
-  border: `1px solid ${colors.border}`,
+  border: `1px solid rgba(var(--sh-primary-rgb), 0.28)`,
   borderRadius: "999px",
   padding: "6px 10px",
   fontSize: "12px",
@@ -910,15 +915,18 @@ const modalCopyStyle = {
 };
 
 const modalCloseButtonStyle = {
-  width: "38px",
-  height: "38px",
+  width: "32px",
+  height: "32px",
+  flex: "0 0 auto",
   borderRadius: "50%",
   border: "none",
-  background: "transparent",
-  color: colors.primary,
-  fontSize: "24px",
+  background: "rgba(120, 120, 128, 0.16)",
+  color: colors.muted,
+  fontSize: "20px",
   lineHeight: 1,
   cursor: "pointer",
+  display: "grid",
+  placeItems: "center",
 };
 
 const profileHeroCardStyle = {
@@ -926,10 +934,10 @@ const profileHeroCardStyle = {
   alignItems: "center",
   gap: "14px",
   padding: "16px",
-  borderRadius: "16px",
-  border: `1px solid ${colors.border}`,
+  borderRadius: "var(--sh-radius-lg)",
+  border: `1px solid ${colors.glassBorder}`,
   background: "linear-gradient(90deg, var(--sh-header-start) 40%, var(--sh-header-end))",
-  boxShadow: "var(--sh-shadow-md)",
+  boxShadow: "var(--sh-glass-highlight)",
   marginBottom: "16px",
 };
 
@@ -952,17 +960,18 @@ const profileHeroCopyStyle = {
   minWidth: 0,
 };
 
-const profileStatusStyle = (accentColor) => ({
+const profileStatusStyle = {
   display: "inline-flex",
   alignItems: "center",
   width: "fit-content",
-  padding: "5px 9px",
+  padding: "5px 10px",
   borderRadius: "999px",
-  background: accentColor,
+  background: "linear-gradient(135deg, var(--sh-primary), var(--sh-primary-deep))",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3)",
   color: "white",
   fontSize: "12px",
   fontWeight: "700",
-});
+};
 
 const profileHeroNameStyle = {
   color: colors.text,
@@ -987,24 +996,18 @@ const avatarActionsStyle = {
 };
 
 const avatarChooseButtonStyle = {
-  background: colors.surface,
-  color: colors.primary,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "10px",
-  padding: "9px 12px",
-  fontWeight: "700",
-  cursor: "pointer",
+  ...buttonSecondaryStyle,
+  padding: "9px 14px",
+  fontSize: "13px",
 };
 
 const avatarSaveButtonStyle = (disabled) => ({
-  background: disabled ? colors.border : colors.primary,
-  color: disabled ? colors.muted : "white",
-  border: "none",
-  borderRadius: "10px",
-  padding: "9px 12px",
-  fontWeight: "700",
+  ...buttonPrimaryStyle,
+  padding: "9px 14px",
+  fontSize: "13px",
+  opacity: disabled ? 0.55 : 1,
   cursor: disabled ? "not-allowed" : "pointer",
-  boxShadow: disabled ? "none" : "0 10px 24px rgba(249,115,22,0.22)",
+  boxShadow: disabled ? "none" : buttonPrimaryStyle.boxShadow,
 });
 
 const avatarMessageStyle = {
@@ -1030,15 +1033,10 @@ const profileFieldLabelStyle = {
 };
 
 const profileInputStyle = {
-  width: "100%",
+  ...inputStyle,
   minHeight: "46px",
-  border: `1px solid ${colors.border}`,
-  borderRadius: "10px",
-  background: colors.field,
-  color: colors.text,
   padding: "10px 12px",
-  fontWeight: "700",
-  outlineColor: colors.primary,
+  fontWeight: "600",
 };
 
 const profileReadOnlyInputStyle = {
@@ -1076,99 +1074,53 @@ const settingsFormStyle = {
   gap: "12px",
 };
 
-const settingsGridStyle = {
+const settingsGroupStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))",
-  gap: "12px",
+  gap: "10px",
+};
+
+const settingsGroupTitleStyle = {
+  margin: "0 0 0 4px",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: colors.muted,
 };
 
 const settingRowStyle = {
   display: "flex",
-  alignItems: "center",
   justifyContent: "space-between",
+  alignItems: "center",
   gap: "14px",
-  padding: "14px",
-  border: `1px solid ${colors.border}`,
-  borderRadius: "14px",
-  background: colors.field,
+  padding: "14px 16px",
+  cursor: "pointer",
+};
+
+const selectRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "14px",
+  flexWrap: "wrap",
+  padding: "14px 16px",
+};
+
+const inlineSelectStyle = {
+  width: "auto",
+  minWidth: "180px",
+  flex: "0 1 auto",
+  padding: "8px 34px 8px 12px",
+  fontSize: "13.5px",
 };
 
 const settingCopyStyle = {
   display: "grid",
-  gap: "2px",
+  gap: "4px",
+  minWidth: 0,
 };
 
 const settingTitleStyle = {
-  color: colors.text,
-};
-
-const switchStyle = {
-  width: "18px",
-  height: "18px",
-  accentColor: colors.primary,
-  flex: "0 0 auto",
-};
-
-const selectFieldStyle = {
-  display: "grid",
-  gap: "8px",
-  padding: "14px",
-  borderRadius: "14px",
-  border: `1px solid ${colors.border}`,
-  background: colors.field,
-};
-
-const selectLabelStyle = {
-  color: colors.text,
-  fontWeight: "700",
-};
-
-const selectStyle = {
-  width: "100%",
-  padding: "12px 14px",
-  borderRadius: "10px",
-  border: `1px solid ${colors.border}`,
-  background: colors.surface,
-  color: colors.text,
-  outlineColor: colors.primary,
-};
-
-const settingsSummaryStyle = {
-  display: "grid",
-  gap: "12px",
-  padding: "16px",
-  borderRadius: "16px",
-  border: `1px solid ${colors.border}`,
-  background: colors.surface,
-};
-
-const detailTitleStyle = {
-  margin: 0,
-  color: colors.text,
-};
-
-const settingsSummaryGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(110px, 100%), 1fr))",
-  gap: "10px",
-};
-
-const summaryItemStyle = {
-  display: "grid",
-  gap: "4px",
-  padding: "12px 14px",
-  borderRadius: "14px",
-  border: `1px solid ${colors.border}`,
-  background: colors.field,
-};
-
-const summaryLabelStyle = {
-  color: colors.muted,
-  fontSize: "12px",
-  fontWeight: "700",
-};
-
-const summaryValueStyle = {
   color: colors.text,
   fontSize: "14px",
 };
@@ -1191,43 +1143,11 @@ const settingsHintStyle = {
 };
 
 const secondaryActionStyle = {
-  background: colors.surface,
-  color: colors.primary,
-  padding: "12px 18px",
-  border: `1px solid ${colors.border}`,
-  borderRadius: "10px",
-  fontWeight: "700",
-  cursor: "pointer",
+  ...buttonSecondaryStyle,
 };
 
-const accentPreviewStyle = (accentColor) => ({
-  display: "flex",
-  alignItems: "center",
-  gap: "10px",
-  color: accentColor,
-  fontWeight: "700",
-});
-
-const accentDotStyle = (accentColor) => ({
-  width: "12px",
-  height: "12px",
-  borderRadius: "50%",
-  background: accentColor,
-  boxShadow:
-    accentColor === colors.primary
-      ? "0 0 0 4px rgba(249,115,22,0.14)"
-      : "0 0 0 4px rgba(217,119,6,0.14)",
-});
-
 const modalDoneButtonStyle = {
-  background: colors.primary,
-  color: "white",
-  border: "none",
-  borderRadius: "10px",
-  minHeight: "44px",
-  padding: "0 18px",
-  fontWeight: "800",
-  cursor: "pointer",
+  ...buttonPrimaryStyle,
 };
 
 const heroStyle = {
@@ -1249,13 +1169,19 @@ const heroContent = {
 };
 
 const badgeStyle = {
-  background: "rgba(255, 237, 213, 0.82)",
-  color: colors.primary,
-  padding: "10px 18px",
-  borderRadius: "20px",
-  fontWeight: "600",
-  border: `1px solid ${colors.border}`,
-  boxShadow: "0 10px 24px rgba(124, 45, 18, 0.08)",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "8px",
+  background: "var(--sh-glass-bg-strong)",
+  backdropFilter: "var(--sh-glass-filter)",
+  WebkitBackdropFilter: "var(--sh-glass-filter)",
+  color: colors.primaryDark,
+  padding: "9px 16px",
+  borderRadius: "999px",
+  fontWeight: "700",
+  fontSize: "13.5px",
+  border: `1px solid ${colors.glassBorder}`,
+  boxShadow: "var(--sh-shadow-sm)",
 };
 
 const heroTitle = {
@@ -1280,24 +1206,18 @@ const heroActionsStyle = {
 };
 
 const primaryBtn = {
-  background: colors.primary,
-  color: "white",
-  padding: "14px 22px",
-  border: "none",
-  borderRadius: "10px",
-  cursor: "pointer",
-  minHeight: "48px",
+  ...buttonPrimaryStyle,
+  padding: "14px 24px",
+  fontSize: "15px",
+  minHeight: "50px",
   width: "min(100%, 280px)",
 };
 
 const secondaryBtn = {
-  background: colors.surface,
-  color: colors.primary,
-  padding: "14px 22px",
-  border: `1px solid ${colors.border}`,
-  borderRadius: "10px",
-  cursor: "pointer",
-  minHeight: "48px",
+  ...buttonSecondaryStyle,
+  padding: "14px 24px",
+  fontSize: "15px",
+  minHeight: "50px",
   width: "min(100%, 220px)",
 };
 
@@ -1309,13 +1229,11 @@ const cardsSection = {
 };
 
 const cardStyle = {
-  background: colors.surface,
+  ...glassStyle,
   color: colors.text,
   padding: "28px",
-  border: `1px solid ${colors.border}`,
-  borderRadius: "20px",
+  borderRadius: "var(--sh-radius-xl)",
   width: "100%",
-  boxShadow: "var(--sh-shadow-md)",
 };
 
 export default Home;

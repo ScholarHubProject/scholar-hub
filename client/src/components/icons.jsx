@@ -201,6 +201,42 @@ export const CapIcon = (props) => (
 // The hero illustration: a mortarboard over a stack of books beside a
 // small plant and a bar chart. Inline SVG rather than an image file so it
 // picks up the theme tokens and stays crisp at any size.
+export const SunIcon = (props) => (
+  <Icon {...props}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+  </Icon>
+);
+
+export const MoonIcon = (props) => (
+  <Icon {...props}>
+    <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z" />
+  </Icon>
+);
+
+export const AutoThemeIcon = (props) => (
+  <Icon {...props}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5v17A8.5 8.5 0 0 0 12 3.5Z" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
+export const PaletteIcon = (props) => (
+  <Icon {...props}>
+    <path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.9 2-2 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.2 0-1.1.9-2 2-2h1.8A4.2 4.2 0 0 0 21 10.4C21 6.3 16.9 3 12 3Z" />
+    <circle cx="7.5" cy="11.5" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="10.5" cy="7.5" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="7.5" r="1.1" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
+export const SparkleIcon = (props) => (
+  <Icon {...props}>
+    <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z" />
+    <path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z" />
+  </Icon>
+);
+
 export const ScholarshipArt = ({ width = 260 }) => (
   <svg
     width={width}

@@ -16,106 +16,303 @@ html {
     sans-serif;
   --sh-font-body: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 
-  /* One radius and shadow scale for the whole app. Cards were drifting
-     between 10px and 18px corners and three unrelated shadows; naming
-     the steps is what keeps a new panel matching the old ones. */
-  --sh-radius-sm: 10px;
-  --sh-radius-md: 14px;
-  --sh-radius-lg: 18px;
-  --sh-radius-xl: 22px;
-  --sh-shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.04);
-  --sh-shadow-md: 0 8px 20px rgba(15, 23, 42, 0.06);
-  --sh-shadow-lg: 0 16px 38px rgba(15, 23, 42, 0.08);
-  --sh-shadow-accent: 0 10px 24px rgba(249, 115, 22, 0.24);
-  --sh-ring: 0 0 0 3px rgba(249, 115, 22, 0.22);
+  /* ------------------------------------------------------------
+     Liquid glass
+     ------------------------------------------------------------
+     Every panel is a sheet of frosted glass over an ambient wash: a
+     translucent fill, a blur of what sits behind it, a hairline border
+     that is lighter than the fill, and a one-pixel highlight along the
+     top edge where the light would catch. The four live here as tokens
+     so a card, a menu and the app bar all read as the same material.
+     Corners follow iOS: larger than a web card, and always concentric
+     with whatever sits inside them. */
+  --sh-radius-sm: 12px;
+  --sh-radius-md: 16px;
+  --sh-radius-lg: 22px;
+  --sh-radius-xl: 28px;
+  --sh-glass-blur: 22px;
+  --sh-glass-filter: blur(var(--sh-glass-blur)) saturate(1.7);
+  --sh-glass-filter-strong: blur(34px) saturate(1.9);
+  --sh-glass-bg: rgba(255, 255, 255, 0.62);
+  --sh-glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --sh-glass-bg-soft: rgba(255, 255, 255, 0.4);
+  --sh-glass-border: rgba(255, 255, 255, 0.72);
+  --sh-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.28);
+  --sh-glass-edge: 0 0 0 0.5px rgba(15, 23, 42, 0.06);
+
+  --sh-shadow-sm: var(--sh-glass-edge), var(--sh-glass-highlight),
+    0 2px 8px rgba(15, 23, 42, 0.04);
+  --sh-shadow-md: var(--sh-glass-edge), var(--sh-glass-highlight),
+    0 10px 30px rgba(15, 23, 42, 0.07);
+  --sh-shadow-lg: var(--sh-glass-edge), var(--sh-glass-highlight),
+    0 24px 60px rgba(15, 23, 42, 0.14);
+  --sh-shadow-accent: 0 10px 26px rgba(var(--sh-primary-rgb), 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  --sh-ring: 0 0 0 4px rgba(var(--sh-primary-rgb), 0.22);
 
   /* Height of the institutional strip above the app bar. The topbar
      offset and the page's top padding both read it, so they cannot
      drift apart. Two stacked lines need the extra room. */
   --sh-utility-strip: 44px;
-  /* The strip needs its own pair rather than borrowing --sh-primary-dark:
-     that token inverts to a pale peach in dark mode, which would leave
-     white text on a light bar at about 1.3:1. */
-  --sh-utility-bg: #9a3412;
-  --sh-utility-bg-deep: #7c2d12;
-  --sh-utility-ink: #ffffff;
-  --sh-page: #fff7ed;
-  --sh-page-alt: #ffedd5;
-  --sh-surface: #ffffff;
-  --sh-field: #fffaf5;
+
+  /* ------------------------------------------------------------
+     Accent
+     ------------------------------------------------------------
+     The accent is chosen in Settings and lands on <html data-accent>.
+     Only these four change per accent; every wash, border and tint
+     below is mixed from them, which is what lets seven accents share
+     one stylesheet. --sh-primary-rgb is the same colour as channels so
+     it can sit inside an rgba() with its own alpha. */
   --sh-primary: #f97316;
   --sh-primary-dark: #c2410c;
-  --sh-primary-soft: #ffedd5;
-  --sh-border: #fed7aa;
-  --sh-text: #1f2937;
-  --sh-muted: #64748b;
+  --sh-primary-rgb: 249, 115, 22;
+  --sh-accent-tint: #fb923c;
+  /* The far end of a button gradient. In light mode that is the ink
+     colour; in dark mode the ink goes pale (it has to read on a wash)
+     so the gradient needs its own deep shade or white text on it
+     disappears. */
+  --sh-primary-deep: var(--sh-primary-dark);
+
+  --sh-primary-soft: color-mix(in srgb, var(--sh-primary) 14%, white);
+  --sh-border: color-mix(in srgb, var(--sh-primary) 26%, #ffffff);
+  --sh-page: color-mix(in srgb, var(--sh-accent-tint) 6%, #fbfaf8);
+  --sh-page-alt: color-mix(in srgb, var(--sh-accent-tint) 16%, #ffffff);
+  --sh-surface: var(--sh-glass-bg);
+  --sh-surface-solid: #ffffff;
+  --sh-field: rgba(255, 255, 255, 0.55);
+  --sh-text: #1c1c1e;
+  --sh-muted: #6b6f78;
   --sh-success: #16a34a;
   --sh-danger: #dc2626;
-  --sh-header-start: #fff7ed;
-  --sh-header-end: #fed7aa;
-  --sh-topbar-bg: rgba(255, 255, 255, 0.94);
+  --sh-header-start: rgba(255, 255, 255, 0.55);
+  --sh-header-end: color-mix(in srgb, var(--sh-accent-tint) 24%, rgba(255, 255, 255, 0.6));
+  --sh-topbar-bg: rgba(255, 255, 255, 0.58);
+
+  /* The strip needs its own pair rather than borrowing --sh-primary-dark:
+     that token inverts to a pale tint in dark mode, which would leave
+     white text on a light bar at about 1.3:1. */
+  --sh-utility-bg: color-mix(in srgb, var(--sh-primary-dark) 82%, #1c1c1e);
+  --sh-utility-bg-deep: color-mix(in srgb, var(--sh-primary-dark) 62%, #0b0b0d);
+  --sh-utility-ink: #ffffff;
+
+  /* Two soft blobs of the accent plus one cool counter-tint, fixed
+     behind the page. They are what the glass has to blur - a flat page
+     colour under frosted glass just looks grey. */
+  --sh-ambient-1: rgba(var(--sh-primary-rgb), 0.36);
+  --sh-ambient-2: color-mix(in srgb, var(--sh-accent-tint) 42%, transparent);
+  --sh-ambient-3: rgba(96, 165, 250, 0.16);
+
   --sh-auth-bg-overlay: linear-gradient(
     135deg,
-    rgba(255, 247, 237, 0.9) 0%,
-    rgba(255, 237, 213, 0.72) 44%,
-    rgba(255, 255, 255, 0.78) 100%
+    color-mix(in srgb, var(--sh-page) 90%, transparent) 0%,
+    color-mix(in srgb, var(--sh-page-alt) 70%, transparent) 44%,
+    rgba(255, 255, 255, 0.7) 100%
   );
-  --sh-auth-card-bg: rgba(255, 255, 255, 0.84);
-  --sh-auth-card-border: rgba(255, 255, 255, 0.72);
-  --sh-auth-field-bg: rgba(255, 250, 245, 0.88);
+  --sh-auth-card-bg: rgba(255, 255, 255, 0.66);
+  --sh-auth-card-border: rgba(255, 255, 255, 0.8);
+  --sh-auth-field-bg: rgba(255, 255, 255, 0.6);
   --sh-home-hero-overlay: linear-gradient(
     90deg,
-    rgba(255, 247, 237, 0.94) 0%,
-    rgba(255, 237, 213, 0.78) 46%,
-    rgba(255, 255, 255, 0.42) 100%
+    color-mix(in srgb, var(--sh-page) 92%, transparent) 0%,
+    color-mix(in srgb, var(--sh-page-alt) 74%, transparent) 46%,
+    rgba(255, 255, 255, 0.3) 100%
   );
-  --sh-home-hero-shadow: inset 0 -24px 48px rgba(255, 247, 237, 0.34);
+  --sh-home-hero-shadow: inset 0 -24px 48px rgba(255, 255, 255, 0.3);
+}
+
+/* Light-theme accents. The dark pairs sit further down, after the dark
+   base, so that they win on specificity order rather than by weight. */
+:root[data-accent="amber"] {
+  --sh-primary: #f59e0b;
+  --sh-primary-dark: #b45309;
+  --sh-primary-rgb: 245, 158, 11;
+  --sh-accent-tint: #fbbf24;
+}
+
+:root[data-accent="rose"] {
+  --sh-primary: #f43f5e;
+  --sh-primary-dark: #be123c;
+  --sh-primary-rgb: 244, 63, 94;
+  --sh-accent-tint: #fb7185;
+}
+
+:root[data-accent="violet"] {
+  --sh-primary: #8b5cf6;
+  --sh-primary-dark: #6d28d9;
+  --sh-primary-rgb: 139, 92, 246;
+  --sh-accent-tint: #a78bfa;
+  --sh-ambient-3: rgba(244, 114, 182, 0.14);
+}
+
+:root[data-accent="blue"] {
+  --sh-primary: #3b82f6;
+  --sh-primary-dark: #1d4ed8;
+  --sh-primary-rgb: 59, 130, 246;
+  --sh-accent-tint: #60a5fa;
+  --sh-ambient-3: rgba(45, 212, 191, 0.16);
+}
+
+:root[data-accent="teal"] {
+  --sh-primary: #14b8a6;
+  --sh-primary-dark: #0f766e;
+  --sh-primary-rgb: 20, 184, 166;
+  --sh-accent-tint: #2dd4bf;
+  --sh-ambient-3: rgba(96, 165, 250, 0.14);
+}
+
+:root[data-accent="graphite"] {
+  --sh-primary: #64748b;
+  --sh-primary-dark: #334155;
+  --sh-primary-rgb: 100, 116, 139;
+  --sh-accent-tint: #94a3b8;
+  --sh-ambient-3: rgba(148, 163, 184, 0.14);
 }
 
 :root[data-theme="dark"] {
-  /* On a #111827 page a 6%-black shadow is simply not there. Depth in
-     dark mode comes from a denser shadow plus the surface being lighter
-     than the page, not from the same values as light mode. */
-  --sh-shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.3);
-  --sh-shadow-md: 0 8px 20px rgba(0, 0, 0, 0.38);
-  --sh-shadow-lg: 0 16px 38px rgba(0, 0, 0, 0.46);
-  --sh-shadow-accent: 0 10px 24px rgba(251, 146, 60, 0.26);
-  --sh-ring: 0 0 0 3px rgba(251, 146, 60, 0.3);
+  /* On a near-black page a 6%-black shadow is simply not there. Depth in
+     dark mode comes from the glass being lighter than the page, a
+     brighter top highlight, and a denser drop shadow. */
+  --sh-glass-bg: rgba(30, 33, 44, 0.58);
+  --sh-glass-bg-strong: rgba(30, 33, 44, 0.78);
+  --sh-glass-bg-soft: rgba(30, 33, 44, 0.38);
+  --sh-glass-border: rgba(255, 255, 255, 0.12);
+  --sh-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+  --sh-glass-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.5);
+
+  --sh-shadow-sm: var(--sh-glass-edge), var(--sh-glass-highlight),
+    0 2px 8px rgba(0, 0, 0, 0.32);
+  --sh-shadow-md: var(--sh-glass-edge), var(--sh-glass-highlight),
+    0 12px 32px rgba(0, 0, 0, 0.42);
+  --sh-shadow-lg: var(--sh-glass-edge), var(--sh-glass-highlight),
+    0 28px 70px rgba(0, 0, 0, 0.55);
+  --sh-shadow-accent: 0 10px 26px rgba(var(--sh-primary-rgb), 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  --sh-ring: 0 0 0 4px rgba(var(--sh-primary-rgb), 0.32);
+
+  --sh-primary: #fb923c;
+  --sh-primary-dark: #fed7aa;
+  --sh-primary-rgb: 251, 146, 60;
+  --sh-accent-tint: #f97316;
+  --sh-primary-deep: #ea580c;
+
+  --sh-primary-soft: rgba(var(--sh-primary-rgb), 0.16);
+  --sh-border: rgba(255, 255, 255, 0.11);
+  --sh-page: color-mix(in srgb, var(--sh-accent-tint) 4%, #0c0d12);
+  --sh-page-alt: color-mix(in srgb, var(--sh-accent-tint) 10%, #16181f);
+  --sh-surface: var(--sh-glass-bg);
+  --sh-surface-solid: #1c1f29;
+  --sh-field: rgba(255, 255, 255, 0.06);
+  --sh-text: #f5f5f7;
+  --sh-muted: #a1a1aa;
+  --sh-success: #4ade80;
+  --sh-danger: #f87171;
+  --sh-header-start: rgba(255, 255, 255, 0.04);
+  --sh-header-end: rgba(var(--sh-primary-rgb), 0.18);
+  --sh-topbar-bg: rgba(16, 18, 26, 0.6);
+
   --sh-utility-bg: #0b1220;
   --sh-utility-bg-deep: #060b14;
   --sh-utility-ink: #cbd5e1;
-  --sh-page: #111827;
-  --sh-page-alt: #1f2937;
-  --sh-surface: #172033;
-  --sh-field: #111827;
-  --sh-primary: #fb923c;
-  --sh-primary-dark: #fed7aa;
-  --sh-primary-soft: rgba(251, 146, 60, 0.16);
-  --sh-border: #374151;
-  --sh-text: #f8fafc;
-  --sh-muted: #cbd5e1;
-  --sh-success: #4ade80;
-  --sh-danger: #f87171;
-  --sh-header-start: #172033;
-  --sh-header-end: #2a1f18;
-  --sh-topbar-bg: rgba(17, 24, 39, 0.94);
+
+  --sh-ambient-1: rgba(var(--sh-primary-rgb), 0.22);
+  --sh-ambient-2: color-mix(in srgb, var(--sh-accent-tint) 20%, transparent);
+  --sh-ambient-3: rgba(59, 130, 246, 0.14);
+
   --sh-auth-bg-overlay: linear-gradient(
     135deg,
-    rgba(17, 24, 39, 0.9) 0%,
-    rgba(42, 31, 24, 0.76) 48%,
-    rgba(17, 32, 51, 0.84) 100%
+    rgba(12, 13, 18, 0.9) 0%,
+    color-mix(in srgb, var(--sh-page-alt) 78%, transparent) 48%,
+    rgba(12, 13, 18, 0.84) 100%
   );
-  --sh-auth-card-bg: rgba(23, 32, 51, 0.84);
+  --sh-auth-card-bg: rgba(30, 33, 44, 0.66);
   --sh-auth-card-border: rgba(255, 255, 255, 0.14);
-  --sh-auth-field-bg: rgba(17, 24, 39, 0.78);
+  --sh-auth-field-bg: rgba(255, 255, 255, 0.06);
   --sh-home-hero-overlay: linear-gradient(
     90deg,
-    rgba(17, 24, 39, 0.94) 0%,
-    rgba(42, 31, 24, 0.82) 48%,
-    rgba(17, 24, 39, 0.48) 100%
+    rgba(12, 13, 18, 0.94) 0%,
+    color-mix(in srgb, var(--sh-page-alt) 84%, transparent) 48%,
+    rgba(12, 13, 18, 0.46) 100%
   );
-  --sh-home-hero-shadow: inset 0 -24px 48px rgba(17, 24, 39, 0.42);
+  --sh-home-hero-shadow: inset 0 -24px 48px rgba(12, 13, 18, 0.42);
 }
+
+/* Dark accents lift the tint a step so it clears 4.5:1 on the glass,
+   and --sh-primary-dark becomes the palest tint, for text on a wash. */
+:root[data-theme="dark"][data-accent="amber"] {
+  --sh-primary: #fbbf24;
+  --sh-primary-dark: #fde68a;
+  --sh-primary-rgb: 251, 191, 36;
+  --sh-accent-tint: #f59e0b;
+  --sh-primary-deep: #d97706;
+}
+
+:root[data-theme="dark"][data-accent="rose"] {
+  --sh-primary: #fb7185;
+  --sh-primary-dark: #fecdd3;
+  --sh-primary-rgb: 251, 113, 133;
+  --sh-accent-tint: #f43f5e;
+  --sh-primary-deep: #e11d48;
+}
+
+:root[data-theme="dark"][data-accent="violet"] {
+  --sh-primary: #a78bfa;
+  --sh-primary-dark: #ddd6fe;
+  --sh-primary-rgb: 167, 139, 250;
+  --sh-accent-tint: #8b5cf6;
+  --sh-primary-deep: #7c3aed;
+}
+
+:root[data-theme="dark"][data-accent="blue"] {
+  --sh-primary: #60a5fa;
+  --sh-primary-dark: #bfdbfe;
+  --sh-primary-rgb: 96, 165, 250;
+  --sh-accent-tint: #3b82f6;
+  --sh-primary-deep: #2563eb;
+}
+
+:root[data-theme="dark"][data-accent="teal"] {
+  --sh-primary: #2dd4bf;
+  --sh-primary-dark: #99f6e4;
+  --sh-primary-rgb: 45, 212, 191;
+  --sh-accent-tint: #14b8a6;
+  --sh-primary-deep: #0d9488;
+}
+
+:root[data-theme="dark"][data-accent="graphite"] {
+  --sh-primary: #94a3b8;
+  --sh-primary-dark: #e2e8f0;
+  --sh-primary-rgb: 148, 163, 184;
+  --sh-accent-tint: #64748b;
+  --sh-primary-deep: #475569;
+}
+
+/* "Reduce transparency": the glass goes opaque and the blur is dropped.
+   Everything keeps its shape; only the material changes. */
+:root[data-glass="off"] {
+  --sh-glass-filter: none;
+  --sh-glass-filter-strong: none;
+  --sh-glass-bg: var(--sh-surface-solid);
+  --sh-glass-bg-strong: var(--sh-surface-solid);
+  --sh-glass-bg-soft: var(--sh-surface-solid);
+  --sh-topbar-bg: var(--sh-surface-solid);
+  --sh-auth-card-bg: var(--sh-surface-solid);
+  --sh-field: color-mix(in srgb, var(--sh-primary) 4%, var(--sh-surface-solid));
+}
+
+/* Browsers without backdrop-filter get the same opaque fallback rather
+   than a washed-out, see-through card with nothing frosting it. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --sh-glass-bg: var(--sh-surface-solid);
+    --sh-glass-bg-strong: var(--sh-surface-solid);
+    --sh-glass-bg-soft: var(--sh-surface-solid);
+    --sh-topbar-bg: var(--sh-surface-solid);
+    --sh-auth-card-bg: var(--sh-surface-solid);
+  }
+}
+
 
 body {
   margin: 0;
@@ -124,11 +321,47 @@ body {
   line-height: 1.55;
   background: var(--sh-page);
   color: var(--sh-text);
-  transition: background 180ms ease, color 180ms ease;
+  transition: background 240ms ease, color 240ms ease;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* The ambient wash the glass sits over: three soft colour fields, fixed
+   to the viewport, drifting very slowly. They live on a pseudo-element
+   rather than the body background so that the blur on a card has real
+   colour gradients to frost, and so a 40s animation costs the page one
+   compositor layer instead of a repaint. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20vmax;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(42vmax 42vmax at 12% 8%, var(--sh-ambient-1), transparent 62%),
+    radial-gradient(38vmax 38vmax at 88% 18%, var(--sh-ambient-3), transparent 64%),
+    radial-gradient(46vmax 46vmax at 70% 92%, var(--sh-ambient-2), transparent 66%),
+    radial-gradient(30vmax 30vmax at 20% 80%, var(--sh-ambient-3), transparent 60%);
+  filter: blur(18px);
+  animation: shAmbientDrift 42s ease-in-out infinite alternate;
+  transition: opacity 240ms ease;
+}
+
+:root[data-glass="off"] body::before {
+  opacity: 0.55;
+  animation: none;
+}
+
+@keyframes shAmbientDrift {
+  from {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+
+  to {
+    transform: translate3d(3vmax, -2vmax, 0) rotate(4deg) scale(1.06);
+  }
 }
 
 h1,
@@ -234,14 +467,14 @@ a {
   a:has(> button:not(:disabled)):hover button {
     transform: translateY(-2px) scale(1.025);
     filter: brightness(1.04);
-    box-shadow: 0 12px 26px rgba(249, 115, 22, 0.22);
+    box-shadow: 0 12px 26px rgba(var(--sh-primary-rgb), 0.22);
   }
 
   button:not(:disabled):active,
   a:has(> button:not(:disabled)):active button {
     transform: translateY(0) scale(0.98);
     filter: brightness(0.98);
-    box-shadow: 0 6px 14px rgba(249, 115, 22, 0.16);
+    box-shadow: 0 6px 14px rgba(var(--sh-primary-rgb), 0.16);
   }
 
   button:disabled {
@@ -356,7 +589,7 @@ a {
   height: 58%;
   border-radius: 999px;
   background: var(--sh-primary);
-  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.12);
+  box-shadow: 0 0 0 4px rgba(var(--sh-primary-rgb), 0.12);
   transform: translateY(-50%);
 }
 
@@ -563,6 +796,20 @@ a {
   --viz-critical-ink: #7f1d1d;
   --viz-tooltip-bg: rgba(31, 41, 55, 0.96);
   --viz-tooltip-ink: #ffffff;
+  /* Notice and badge borders: the status hue at a strength that reads
+     as an edge rather than a stripe. Info and purple are the two extra
+     families the audit log and announcements use for entity types. */
+  --viz-good-line: rgba(12, 163, 12, 0.32);
+  --viz-warning-line: rgba(250, 178, 25, 0.45);
+  --viz-critical-line: rgba(208, 59, 59, 0.32);
+  --viz-info: #2a78d6;
+  --viz-info-wash: rgba(42, 120, 214, 0.12);
+  --viz-info-line: rgba(42, 120, 214, 0.32);
+  --viz-info-ink: #1e40af;
+  --viz-purple: #7c3aed;
+  --viz-purple-wash: rgba(124, 58, 237, 0.12);
+  --viz-purple-line: rgba(124, 58, 237, 0.3);
+  --viz-purple-ink: #5b21b6;
 }
 
 :root[data-theme="dark"] {
@@ -591,6 +838,17 @@ a {
   --viz-critical-ink: #fca5a5;
   --viz-tooltip-bg: rgba(8, 12, 22, 0.96);
   --viz-tooltip-ink: #f8fafc;
+  --viz-good-line: rgba(74, 222, 128, 0.35);
+  --viz-warning-line: rgba(250, 178, 25, 0.4);
+  --viz-critical-line: rgba(248, 113, 113, 0.35);
+  --viz-info: #3987e5;
+  --viz-info-wash: rgba(57, 135, 229, 0.2);
+  --viz-info-line: rgba(96, 165, 250, 0.35);
+  --viz-info-ink: #bfdbfe;
+  --viz-purple: #a78bfa;
+  --viz-purple-wash: rgba(167, 139, 250, 0.2);
+  --viz-purple-line: rgba(167, 139, 250, 0.35);
+  --viz-purple-ink: #ddd6fe;
 }
 
 /* Axis ticks and table figures are columns of numbers, so they get
@@ -876,4 +1134,560 @@ a {
   .sh-auth-actions-cta {
     width: 100%;
   }
+}
+
+/* ============================================================
+   Glass material and iOS-style controls
+   ============================================================
+   The class-based half of the design system. Cards and panels still
+   carry their fill inline through the tokens above; these classes are
+   for the pieces that need a pseudo-element or a state selector, which
+   an inline style cannot express. */
+
+/* One frosted sheet. Used where a panel is built in JSX without going
+   through sharedStyles - the app bar, menus, the sidebar. */
+.sh-glass {
+  background: var(--sh-glass-bg);
+  -webkit-backdrop-filter: var(--sh-glass-filter);
+  backdrop-filter: var(--sh-glass-filter);
+  border: 1px solid var(--sh-glass-border);
+  box-shadow: var(--sh-shadow-md);
+}
+
+.sh-glass-strong {
+  background: var(--sh-glass-bg-strong);
+  -webkit-backdrop-filter: var(--sh-glass-filter-strong);
+  backdrop-filter: var(--sh-glass-filter-strong);
+  border: 1px solid var(--sh-glass-border);
+  box-shadow: var(--sh-shadow-lg);
+}
+
+/* A specular sweep across the top-left of a panel, the way light
+   catches curved glass. Purely decorative, so it ignores the pointer. */
+.sh-glass-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.sh-glass-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      118deg,
+      rgba(255, 255, 255, 0.34) 0%,
+      rgba(255, 255, 255, 0.08) 28%,
+      transparent 52%
+    );
+  mix-blend-mode: screen;
+}
+
+:root[data-theme="dark"] .sh-glass-sheen::after {
+  background:
+    linear-gradient(
+      118deg,
+      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, 0.03) 28%,
+      transparent 52%
+    );
+}
+
+/* Buttons pick up a glass highlight so a flat gradient reads as a
+   pressed-glass pill. The primary keeps its accent glow. */
+.sh-btn-glass {
+  -webkit-backdrop-filter: var(--sh-glass-filter);
+  backdrop-filter: var(--sh-glass-filter);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sh-glass-lift {
+    transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 200ms ease, border-color 200ms ease, background 200ms ease;
+  }
+
+  .sh-glass-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sh-shadow-lg) !important;
+    border-color: rgba(var(--sh-primary-rgb), 0.45) !important;
+  }
+}
+
+/* ---- iOS switch ---------------------------------------------------
+   A native checkbox, repainted: the track is the element itself and
+   the knob is its ::before, so it stays keyboard-operable and still
+   posts through a form. 51x31 is the iOS size. */
+.sh-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 51px;
+  height: 31px;
+  margin: 0;
+  border-radius: 999px;
+  border: none;
+  background: rgba(120, 120, 128, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  transition: background 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 220ms ease;
+}
+
+:root[data-theme="dark"] .sh-switch:not(:checked) {
+  background: rgba(120, 120, 128, 0.42);
+}
+
+.sh-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18), 0 1px 1px rgba(0, 0, 0, 0.08);
+  transition: transform 260ms cubic-bezier(0.34, 1.4, 0.45, 1),
+    width 200ms ease;
+}
+
+.sh-switch:checked {
+  background: var(--sh-primary);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.02);
+}
+
+.sh-switch:checked::before {
+  transform: translateX(20px);
+}
+
+.sh-switch:active::before {
+  width: 32px;
+}
+
+.sh-switch:checked:active::before {
+  transform: translateX(15px);
+}
+
+.sh-switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(var(--sh-primary-rgb), 0.3);
+}
+
+.sh-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Segmented control -------------------------------------------
+   A track of equal cells with one raised glass tab. The tab is a
+   sibling that slides to the checked cell, so the change animates
+   instead of snapping. */
+.sh-segment {
+  --sh-segment-count: 3;
+  --sh-segment-index: 0;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--sh-segment-count), minmax(0, 1fr));
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(120, 120, 128, 0.14);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.05);
+  isolation: isolate;
+}
+
+:root[data-theme="dark"] .sh-segment {
+  background: rgba(120, 120, 128, 0.22);
+}
+
+.sh-segment-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--sh-segment-count));
+  border-radius: 9px;
+  background: var(--sh-surface-solid);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 1px 1px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transform: translateX(calc(var(--sh-segment-index) * 100%));
+  transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 0;
+}
+
+:root[data-theme="dark"] .sh-segment-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.sh-segment-option {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--sh-muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 180ms ease;
+}
+
+.sh-segment-option[aria-checked="true"] {
+  color: var(--sh-text);
+}
+
+.sh-segment-option:focus-visible {
+  outline: 2px solid var(--sh-primary);
+  outline-offset: -2px;
+}
+
+/* Segment buttons must not inherit the global lift; they sit inside a
+   track and would poke out of it. */
+@media (hover: hover) and (pointer: fine) {
+  .sh-segment-option:not(:disabled):hover,
+  .sh-segment-option:not(:disabled):active {
+    transform: none;
+    filter: none;
+    box-shadow: none;
+    color: var(--sh-text);
+  }
+}
+
+/* ---- Accent swatches ---------------------------------------------
+   A row of tint circles; the chosen one wears a ring in its own colour
+   and a check. --sh-swatch is set inline per option. */
+.sh-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sh-swatch {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--sh-swatch);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: transform 200ms cubic-bezier(0.34, 1.4, 0.45, 1),
+    box-shadow 200ms ease;
+}
+
+.sh-swatch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 14px;
+  border-right: 2.5px solid #ffffff;
+  border-bottom: 2.5px solid #ffffff;
+  border-radius: 1px;
+  transform: translateY(-2px) rotate(45deg) scale(0);
+  transition: transform 200ms cubic-bezier(0.34, 1.4, 0.45, 1);
+}
+
+.sh-swatch[aria-checked="true"] {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.12), 0 0 0 2px var(--sh-surface-solid),
+    0 0 0 4.5px var(--sh-swatch);
+}
+
+.sh-swatch[aria-checked="true"]::after {
+  transform: translateY(-2px) rotate(45deg) scale(1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sh-swatch:not(:disabled):hover {
+    transform: scale(1.12);
+    filter: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -2px 4px rgba(0, 0, 0, 0.12), 0 6px 14px rgba(0, 0, 0, 0.18);
+  }
+
+  .sh-swatch:not(:disabled):active {
+    transform: scale(0.96);
+  }
+}
+
+.sh-swatch:focus-visible {
+  outline: 2px solid var(--sh-text);
+  outline-offset: 3px;
+}
+
+/* ---- Theme preview tiles -----------------------------------------
+   The three miniature screens behind the theme segmented control: a
+   little topbar, a card and a button, drawn in the theme they name. */
+.sh-theme-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sh-theme-tile {
+  --tile-page: #f4f2ee;
+  --tile-bar: rgba(255, 255, 255, 0.85);
+  --tile-card: rgba(255, 255, 255, 0.92);
+  --tile-line: rgba(28, 28, 30, 0.16);
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  aspect-ratio: 1.36;
+  border-radius: 14px;
+  border: 1.5px solid var(--sh-border);
+  background:
+    radial-gradient(60% 60% at 15% 10%, rgba(var(--sh-primary-rgb), 0.35), transparent 70%),
+    radial-gradient(50% 50% at 90% 90%, rgba(96, 165, 250, 0.22), transparent 70%),
+    var(--tile-page);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 200ms ease, transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 200ms ease;
+}
+
+.sh-theme-tile.is-dark {
+  --tile-page: #0f1117;
+  --tile-bar: rgba(40, 43, 55, 0.85);
+  --tile-card: rgba(44, 47, 60, 0.92);
+  --tile-line: rgba(255, 255, 255, 0.18);
+}
+
+/* Auto is half and half, split on the diagonal like the iOS tile. */
+.sh-theme-tile.is-system {
+  background:
+    linear-gradient(118deg, #f4f2ee 0 50%, #0f1117 50% 100%);
+}
+
+.sh-theme-tile.is-system .sh-theme-tile-bar,
+.sh-theme-tile.is-system .sh-theme-tile-card {
+  background: linear-gradient(118deg, rgba(255, 255, 255, 0.9) 0 50%, rgba(44, 47, 60, 0.92) 50% 100%);
+}
+
+.sh-theme-tile-bar {
+  height: 9px;
+  border-radius: 4px;
+  background: var(--tile-bar);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.sh-theme-tile-card {
+  min-height: 0;
+  border-radius: 7px;
+  background: var(--tile-card);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
+.sh-theme-tile-card i {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--tile-line);
+}
+
+.sh-theme-tile-card i:first-child {
+  width: 60%;
+  background: var(--sh-primary);
+}
+
+.sh-theme-tile-card i:last-child {
+  width: 40%;
+}
+
+.sh-theme-tile[aria-checked="true"] {
+  border-color: var(--sh-primary);
+  box-shadow: 0 0 0 3px rgba(var(--sh-primary-rgb), 0.22), var(--sh-shadow-sm);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sh-theme-tile:not(:disabled):hover {
+    transform: translateY(-2px);
+    filter: none;
+    box-shadow: var(--sh-shadow-md);
+  }
+}
+
+.sh-theme-tile:focus-visible {
+  outline: 2px solid var(--sh-primary);
+  outline-offset: 2px;
+}
+
+.sh-theme-tile-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--sh-muted);
+  text-align: center;
+}
+
+.sh-theme-tile[aria-checked="true"] + .sh-theme-tile-label {
+  color: var(--sh-text);
+}
+
+/* ---- Quick theme toggle ------------------------------------------
+   The sun/moon button in the app bar. The two icons cross-fade and
+   rotate through each other rather than swapping. */
+.sh-theme-toggle {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: clamp(40px, 10vw, 44px);
+  height: clamp(40px, 10vw, 44px);
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--sh-glass-border);
+  background: var(--sh-glass-bg);
+  -webkit-backdrop-filter: var(--sh-glass-filter);
+  backdrop-filter: var(--sh-glass-filter);
+  color: var(--sh-primary);
+  box-shadow: var(--sh-shadow-sm);
+  overflow: hidden;
+}
+
+.sh-theme-toggle svg {
+  grid-area: 1 / 1;
+  width: 20px;
+  height: 20px;
+  transition: transform 360ms cubic-bezier(0.34, 1.3, 0.45, 1), opacity 200ms ease;
+}
+
+.sh-theme-toggle .is-sun {
+  transform: rotate(0) scale(1);
+  opacity: 1;
+}
+
+.sh-theme-toggle .is-moon {
+  transform: rotate(-90deg) scale(0.4);
+  opacity: 0;
+}
+
+:root[data-theme="dark"] .sh-theme-toggle .is-sun {
+  transform: rotate(90deg) scale(0.4);
+  opacity: 0;
+}
+
+:root[data-theme="dark"] .sh-theme-toggle .is-moon {
+  transform: rotate(0) scale(1);
+  opacity: 1;
+}
+
+/* ---- Select --------------------------------------------------------
+   Native selects keep their own popup (which is the right call: it is
+   the one the user's OS draws) but the closed state gets a glass shell
+   and a chevron drawn in the accent. */
+.sh-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  padding: 11px 38px 11px 14px;
+  border-radius: var(--sh-radius-sm);
+  border: 1px solid var(--sh-border);
+  background-color: var(--sh-field);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  color: var(--sh-text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sh-select:focus-visible {
+  border-color: var(--sh-primary);
+  box-shadow: var(--sh-ring);
+}
+
+/* Rows in the settings sheet: an iOS grouped list, one hairline between
+   rows and the group corners rounded as a whole. */
+.sh-list {
+  display: grid;
+  border-radius: var(--sh-radius-md);
+  border: 1px solid var(--sh-glass-border);
+  background: var(--sh-glass-bg-soft);
+  box-shadow: var(--sh-glass-highlight);
+  overflow: hidden;
+}
+
+.sh-list > * + * {
+  border-top: 1px solid var(--sh-border);
+}
+
+/* Animations for sheets and menus: a spring pop rather than a slide,
+   the way iOS presents a sheet. */
+@keyframes scholarHubPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes scholarHubSheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.sh-pop-in {
+  animation: scholarHubPopIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: top right;
+}
+
+.sh-sheet-in {
+  animation: scholarHubSheetIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* The scrollbar inside a glass panel is the one piece of chrome the
+   browser draws; thinning it keeps it from cutting a grey stripe down
+   the panel's edge. */
+.sh-thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 120, 128, 0.35) transparent;
+}
+
+.sh-thin-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sh-thin-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(120, 120, 128, 0.35);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }

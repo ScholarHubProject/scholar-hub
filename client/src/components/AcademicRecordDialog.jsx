@@ -5,6 +5,7 @@ import {
   buttonSecondaryStyle,
   cardStyle,
   colors,
+  glassStrongStyle,
   inputStyle,
   mutedTextStyle,
 } from "../sharedStyles";
@@ -318,7 +319,10 @@ const AcademicRecordDialog = ({ application, onClose, onSaved }) => {
 const overlayStyle = {
   position: "fixed",
   inset: 0,
-  background: "rgba(15, 23, 42, 0.55)",
+  background: "rgba(10, 12, 20, 0.4)",
+  backdropFilter: "blur(12px) saturate(1.2)",
+  WebkitBackdropFilter: "blur(12px) saturate(1.2)",
+  animation: "scholarHubFadeIn 180ms ease both",
   display: "grid",
   placeItems: "center",
   padding: "18px",
@@ -328,6 +332,8 @@ const overlayStyle = {
 
 const dialogStyle = {
   ...cardStyle,
+  ...glassStrongStyle,
+  animation: "scholarHubSheetIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both",
   width: "min(660px, 100%)",
   maxHeight: "min(88vh, 900px)",
   overflowY: "auto",
