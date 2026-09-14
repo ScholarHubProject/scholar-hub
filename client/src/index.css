@@ -114,9 +114,18 @@ html {
   --sh-auth-field-bg: rgba(255, 255, 255, 0.6);
   --sh-home-hero-overlay: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--sh-page) 92%, transparent) 0%,
-    color-mix(in srgb, var(--sh-page-alt) 74%, transparent) 46%,
-    rgba(255, 255, 255, 0.3) 100%
+    color-mix(in srgb, var(--sh-page) 94%, transparent) 0%,
+    color-mix(in srgb, var(--sh-page) 82%, transparent) 34%,
+    color-mix(in srgb, var(--sh-page-alt) 30%, transparent) 58%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  /* Stacked layouts put the copy on top of the photo, so the wash runs
+     top to bottom instead and clears where the copy ends. */
+  --sh-home-hero-overlay-stacked: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sh-page) 94%, transparent) 0%,
+    color-mix(in srgb, var(--sh-page) 80%, transparent) 62%,
+    color-mix(in srgb, var(--sh-page-alt) 20%, transparent) 100%
   );
   --sh-home-hero-shadow: inset 0 -24px 48px rgba(255, 255, 255, 0.3);
 }
@@ -232,8 +241,15 @@ html {
   --sh-home-hero-overlay: linear-gradient(
     90deg,
     rgba(12, 13, 18, 0.94) 0%,
-    color-mix(in srgb, var(--sh-page-alt) 84%, transparent) 48%,
-    rgba(12, 13, 18, 0.46) 100%
+    rgba(12, 13, 18, 0.84) 34%,
+    color-mix(in srgb, var(--sh-page-alt) 40%, transparent) 58%,
+    rgba(12, 13, 18, 0.18) 100%
+  );
+  --sh-home-hero-overlay-stacked: linear-gradient(
+    180deg,
+    rgba(12, 13, 18, 0.94) 0%,
+    rgba(12, 13, 18, 0.82) 62%,
+    rgba(12, 13, 18, 0.3) 100%
   );
   --sh-home-hero-shadow: inset 0 -24px 48px rgba(12, 13, 18, 0.42);
 }
@@ -1745,5 +1761,25 @@ a {
 
   .sh-dropzone .sh-dropzone-browse {
     margin-left: 58px;
+  }
+}
+
+/* ============================================================
+   Home hero
+   ============================================================
+   The wash sits over the photo so the headline reads; on a wide screen
+   the photo is scaled past the right edge and pinned left, which slides
+   the campus sign out from under the copy and into the open half. */
+.scholar-home-hero {
+  background-image: var(--sh-home-hero-overlay-stacked), url("/campus-psu-rizal.jpg") !important;
+  background-size: cover, cover;
+  background-position: center, 50% 58%;
+}
+
+@media (min-width: 861px) {
+  .scholar-home-hero {
+    background-image: var(--sh-home-hero-overlay), url("/campus-psu-rizal.jpg") !important;
+    background-size: cover, 118% auto;
+    background-position: center, left 46%;
   }
 }

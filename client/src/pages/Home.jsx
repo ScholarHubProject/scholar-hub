@@ -650,6 +650,7 @@ const Home = () => {
             )}
           </div>
         </div>
+
       </section>
 
       <section style={cardsSection}>
@@ -1214,15 +1215,18 @@ const modalDoneButtonStyle = {
   ...buttonPrimaryStyle,
 };
 
+// Full-bleed campus photo. Its size and focal point live in the
+// .scholar-home-hero rules in index.css, because they change with the
+// viewport: on a wide screen the image is scaled past the edge so the
+// "I ♥ PSU Rizal" sign clears the headline; on a phone it simply covers.
 const heroStyle = {
-  minHeight: "clamp(360px, 62vw, 430px)",
+  position: "relative",
+  minHeight: "clamp(340px, 40vw, 440px)",
   display: "flex",
   alignItems: "center",
-  padding: "clamp(36px, 8vw, 60px) clamp(18px, 7vw, 60px)",
+  padding: "clamp(28px, 6vw, 44px) clamp(18px, 7vw, 60px)",
   backgroundColor: colors.pageAlt,
-  backgroundImage: "var(--sh-home-hero-overlay), url('/bg.png')",
-  backgroundSize: "cover, cover",
-  backgroundPosition: "center, right 62%",
+  backgroundImage: "var(--sh-home-hero-overlay), url('/campus-psu-rizal.jpg')",
   backgroundRepeat: "no-repeat",
   borderBottom: `1px solid ${colors.border}`,
   boxShadow: "var(--sh-home-hero-shadow)",
