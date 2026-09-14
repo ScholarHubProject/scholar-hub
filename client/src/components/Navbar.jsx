@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api, { clearSession, getStoredUser, getUploadUrl } from "../api";
 import { DEFAULT_SETTINGS, getSavedSettings, saveSettings } from "../settings";
+import { updateSavedAccount } from "../savedAccounts";
 import {
   buttonPrimaryStyle,
   buttonSecondaryStyle,
@@ -32,14 +33,26 @@ const formatDate = (value) => {
   });
 };
 
-const getNotificationTime = (application) =>
-  application.status_updated_at || application.created_at;
+// The institutional strip shows which term the campus is currently in.
+// Mirrors termForDate() in server/analytics.js: the academic year opens
+// in August, the second semester in January, June-July is summer.
+const currentTermLabel = (now = new Date()) => {
+  const month = now.getMonth();
+  const year = now.getFullYear();
+
+  if (month >= 7) return `1st Semester ${year}-${year + 1}`;
+  if (month <= 4) return `2nd Semester ${year - 1}-${year}`;
+  return `Summer ${year - 1}-${year}`;
+};
 
 const studentLinks = [
   { label: "Home", to: "/" },
   { label: "Scholarships", to: "/scholarships" },
   { label: "Application Form", to: "/application-form" },
   { label: "Track Status", to: "/track-status" },
+  { label: "Analytics", to: "/analytics" },
+  { label: "Outlook", to: "/outlook" },
+  { label: "Notifications", to: "/notifications" },
 ];
 
 const adminLinks = [
@@ -48,6 +61,9 @@ const adminLinks = [
   { label: "Manage Applicants", to: "/manage-applicants" },
   { label: "Reports", to: "/reports" },
   { label: "Announcements", to: "/announcements" },
+  { label: "Manage Accounts", to: "/manage-users" },
+  { label: "Audit Trail", to: "/audit-log" },
+  { label: "Notifications", to: "/notifications" },
 ];
 
 const sidebarInfoPanels = [
@@ -93,17 +109,13 @@ const sidebarInfoPanels = [
 const getNotificationPath = (item, role) => {
   if (role === "Admin") {
     if (item.type === "Application") return "/manage-applicants";
-    if (item.type === "Scholarship") return "/manage-scholarship";
     if (item.type === "Announcement") return "/announcements";
-    return "/admin-dashboard";
-  }
-
-  if (item.type === "Application Update") return "/track-status";
-  if (item.type === "Announcement" || item.type === "Announcement Digest") {
     return "/notifications";
   }
 
-  return "/scholarships";
+  if (item.type === "Application") return "/track-status";
+
+  return "/notifications";
 };
 
 const Navbar = () => {
@@ -123,6 +135,8 @@ const Navbar = () => {
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsNotice, setNotificationsNotice] = useState("");
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [resendingVerification, setResendingVerification] = useState(false);
   const [profileHover, setProfileHover] = useState(false);
   const [notificationHover, setNotificationHover] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
@@ -146,7 +160,10 @@ const Navbar = () => {
   const avatarInputRef = useRef(null);
   const notificationsRequestRef = useRef(0);
   const userRole = user?.role;
-  const userEmail = user?.email;
+  // Undefined on a session that predates the flag, which is treated as
+  // verified: the alternative is nagging every existing account about an
+  // address the office has been mailing successfully for months.
+  const emailUnverified = user?.emailVerified === false;
   const menuLinks = user?.role === "Admin" ? adminLinks : studentLinks;
   const homeLink = menuLinks.find((link) => link.to === "/");
   const roleLinks = menuLinks.filter((link) => link.to !== "/");
@@ -168,6 +185,9 @@ const Navbar = () => {
     const currentUser = getCurrentUser() || user || {};
     const nextUser = { ...currentUser, ...updates };
     localStorage.setItem("currentUser", JSON.stringify(nextUser));
+    // A new photo or a corrected name has to reach the login tile too,
+    // otherwise the account switcher keeps showing the old one.
+    updateSavedAccount(nextUser);
     setUser(nextUser);
     window.dispatchEvent(new CustomEvent(USER_CHANGED_EVENT, { detail: nextUser }));
     return nextUser;
@@ -236,6 +256,11 @@ const Navbar = () => {
     };
   }, []);
 
+  // One endpoint, already merged, sorted and carrying its read state. The
+  // navbar used to assemble its own feed from /announcements and
+  // /applications/student while the notifications page assembled a second one,
+  // which meant the bell and the page could disagree about what existed - and
+  // neither could ever mark anything read, because nothing recorded that.
   const loadNotifications = useCallback(
     async ({ showLoading = true } = {}) => {
       const requestId = notificationsRequestRef.current + 1;
@@ -243,6 +268,7 @@ const Navbar = () => {
 
       if (!userRole || !settings.emailNotifications) {
         setNotifications([]);
+        setUnreadCount(0);
         setNotificationsLoading(false);
         setNotificationsNotice("");
         return;
@@ -253,81 +279,39 @@ const Navbar = () => {
       }
 
       try {
-        if (userRole === "Admin") {
-          const response = await api.get("/admin/recent-activity");
-
-          if (requestId !== notificationsRequestRef.current) return;
-
-          setNotifications(
-            Array.isArray(response.data)
-              ? response.data.map((activity) => ({
-                  id: activity.id,
-                  type: activity.type || "Activity",
-                  title: "Recent Activity",
-                  message: activity.message,
-                  created_at: activity.created_at,
-                }))
-              : []
-          );
-          setNotificationsNotice("");
-          return;
-        }
-
-        const requests = [api.get("/announcements")];
-
-        if (userEmail) {
-          requests.push(api.get("/applications/student"));
-        }
-
-        const [announcementsResponse, applicationsResponse] = await Promise.all(requests);
+        const response = await api.get("/notifications");
 
         if (requestId !== notificationsRequestRef.current) return;
 
-        const rawAnnouncements = Array.isArray(announcementsResponse.data)
-          ? announcementsResponse.data
+        const items = Array.isArray(response.data?.notifications)
+          ? response.data.notifications
           : [];
-        const announcementItems =
-          settings.announcementDigest && rawAnnouncements.length > 0
-            ? [
-                {
-                  id: "announcement-digest",
-                  type: "Announcement Digest",
-                  title: `${rawAnnouncements.length} campus update${
-                    rawAnnouncements.length === 1 ? "" : "s"
-                  }`,
-                  message: rawAnnouncements
-                    .slice(0, 3)
-                    .map((announcement) => announcement.title || announcement.content)
-                    .join(" • "),
-                  created_at: rawAnnouncements[0]?.created_at,
-                },
-              ]
-            : rawAnnouncements.map((announcement) => ({
-                id: `announcement-${announcement.id}`,
-                type: "Announcement",
-                title: announcement.title || "Announcement",
-                message: announcement.content,
-                created_at: announcement.created_at,
-              }));
 
-        const applicationItems =
-          userEmail && applicationsResponse && Array.isArray(applicationsResponse.data)
-            ? applicationsResponse.data.map((application) => ({
-                id: `application-${application.id}`,
-                type: "Application Update",
-                title: application.scholarship_title || "Application",
-                message: `${application.status}${
-                  application.remarks ? ` - ${application.remarks}` : ""
-                }`,
-                created_at: getNotificationTime(application),
-              }))
-            : [];
+        // The digest setting collapses the announcements into one line. It is
+        // a display choice, so it happens here rather than on the server - the
+        // page and the badge still count the same underlying items.
+        const announcements = items.filter((item) => item.type === "Announcement");
+        const rest = items.filter((item) => item.type !== "Announcement");
 
         setNotifications(
-          [...announcementItems, ...applicationItems].sort(
-            (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
-          )
+          settings.announcementDigest && announcements.length > 1
+            ? [
+                {
+                  key: "announcement-digest",
+                  type: "Announcement",
+                  title: `${announcements.length} campus updates`,
+                  body: announcements
+                    .slice(0, 3)
+                    .map((announcement) => announcement.title)
+                    .join(" • "),
+                  created_at: announcements[0]?.created_at,
+                  read: announcements.every((announcement) => announcement.read),
+                },
+                ...rest,
+              ].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+            : items
         );
+        setUnreadCount(response.data?.unreadCount || 0);
         setNotificationsNotice("");
       } catch (error) {
         console.log("Navbar notifications error:", error);
@@ -340,12 +324,7 @@ const Navbar = () => {
         }
       }
     },
-    [
-      settings.announcementDigest,
-      settings.emailNotifications,
-      userEmail,
-      userRole,
-    ]
+    [settings.announcementDigest, settings.emailNotifications, userRole]
   );
 
   useEffect(() => {
@@ -576,8 +555,47 @@ const Navbar = () => {
     }
   };
 
+  // The address is read from the session on the server, never from anything on
+  // this page: a form that emailed whatever was typed into it would be a way to
+  // send mail to strangers from the campus domain.
+  const handleResendVerification = async () => {
+    setResendingVerification(true);
+
+    try {
+      const response = await api.post("/email/resend");
+
+      if (response.data?.emailVerified) {
+        syncStoredUser({ emailVerified: true });
+      }
+
+      window.alert(response.data?.message || "A new confirmation link is on its way.");
+    } catch (error) {
+      window.alert(
+        error.response?.data?.message ||
+          "Could not send a confirmation email right now. Please try again."
+      );
+    } finally {
+      setResendingVerification(false);
+      setProfileOpen(false);
+    }
+  };
+
   const openNotification = (item) => {
     setNotificationsOpen(false);
+
+    // Opening one is reading it. Marked optimistically and without awaiting:
+    // the navigation must not wait on a write whose only effect is a badge.
+    if (!item.read && item.key !== "announcement-digest") {
+      setNotifications((current) =>
+        current.map((row) => (row.key === item.key ? { ...row, read: true } : row))
+      );
+      setUnreadCount((current) => Math.max(0, current - 1));
+
+      api
+        .post("/notifications/read", { keys: [item.key] })
+        .catch((error) => console.log("Navbar notification read error:", error));
+    }
+
     navigate(getNotificationPath(item, userRole));
   };
 
@@ -587,6 +605,21 @@ const Navbar = () => {
 
   return (
     <>
+      {/* Institutional strip. It carries the university and the term the
+          campus is in - real information rather than decoration, which is
+          also why there is no search box here: a control that does not
+          search would be worse than no control. The two lines are stacked
+          against the right edge so they read as one institutional block
+          instead of two stray labels at opposite ends of the bar. */}
+      <div style={utilityStripStyle} className="scholar-utility-strip">
+        <div style={utilityBlockStyle} className="scholar-utility-block">
+          <span style={utilityInstitutionStyle}>Palawan State University</span>
+          <span style={utilityTermStyle} className="scholar-utility-term">
+            {currentTermLabel()}
+          </span>
+        </div>
+      </div>
+
       <header style={topbarStyle} className="scholar-topbar">
         <button onClick={() => setOpen(!open)} style={hamburgerStyle} className="scholar-icon-button">
           ☰
@@ -627,9 +660,11 @@ const Navbar = () => {
                   >
                     <path d="M12 22a2.8 2.8 0 0 0 2.7-2h-5.4A2.8 2.8 0 0 0 12 22Zm7-6.4-1.6-1.8V10a5.4 5.4 0 0 0-4.2-5.3V4a1.2 1.2 0 0 0-2.4 0v.7A5.4 5.4 0 0 0 6.6 10v3.8L5 15.6V17h14v-1.4Z" />
                   </svg>
-                  {notifications.length > 0 && (
+                  {/* Unread, not total. The old badge printed the size of the
+                      feed, so it never went away and stopped meaning anything. */}
+                  {unreadCount > 0 && (
                     <span style={notificationCountStyle}>
-                      {notifications.length > 9 ? "9+" : notifications.length}
+                      {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                   )}
                 </button>
@@ -639,19 +674,17 @@ const Navbar = () => {
                     <div style={notificationHeaderStyle}>
                       <div>
                         <span style={notificationEyebrowStyle}>
-                          {user.role === "Admin" ? "Admin Activity" : "Student Updates"}
+                          {user.role === "Admin" ? "Office Updates" : "Student Updates"}
                         </span>
                         <h3 style={notificationTitleStyle}>Notifications</h3>
                       </div>
-                      {user.role === "Student" && (
-                        <Link
-                          to="/notifications"
-                          style={notificationLinkStyle}
-                          onClick={() => setNotificationsOpen(false)}
-                        >
-                          View page
-                        </Link>
-                      )}
+                      <Link
+                        to="/notifications"
+                        style={notificationLinkStyle}
+                        onClick={() => setNotificationsOpen(false)}
+                      >
+                        View page
+                      </Link>
                     </div>
 
                     {notificationsNotice && (
@@ -666,9 +699,13 @@ const Navbar = () => {
                       <div style={notificationListStyle}>
                         {notifications.map((item) => (
                           <button
-                            key={item.id}
+                            key={item.key}
                             type="button"
-                            style={notificationItemStyle}
+                            style={
+                              item.read
+                                ? notificationItemStyle
+                                : unreadNotificationItemStyle
+                            }
                             onClick={() => openNotification(item)}
                           >
                             <div style={notificationItemHeaderStyle}>
@@ -680,7 +717,9 @@ const Navbar = () => {
                               </span>
                             </div>
                             <strong style={notificationItemTitleStyle}>{item.title}</strong>
-                            <p style={notificationMessageStyle}>{item.message}</p>
+                            {item.body && (
+                              <p style={notificationMessageStyle}>{item.body}</p>
+                            )}
                           </button>
                         ))}
                       </div>
@@ -742,6 +781,22 @@ const Navbar = () => {
                   >
                     Change Password
                   </button>
+
+                  {/* Only shown while it is still needed. A permanent
+                      "resend confirmation" entry would be one more thing to
+                      read past for the people who have nothing to confirm. */}
+                  {emailUnverified && (
+                    <button
+                      type="button"
+                      style={profileMenuItemStyle(hoveredItem === "verify")}
+                      onMouseEnter={() => setHoveredItem("verify")}
+                      onMouseLeave={() => setHoveredItem(null)}
+                      onClick={handleResendVerification}
+                      disabled={resendingVerification}
+                    >
+                      {resendingVerification ? "Sending..." : "Resend email confirmation"}
+                    </button>
+                  )}
                   <button
                     type="button"
                     style={profileLogoutItemStyle(hoveredItem === "logout")}
@@ -1310,16 +1365,72 @@ const Navbar = () => {
   );
 };
 
-const topbarStyle = {
+const utilityStripStyle = {
   position: "fixed",
   top: 0,
+  left: 0,
+  right: 0,
+  height: "var(--sh-utility-strip)",
+  zIndex: 998,
+  // The gradient runs deep-to-base left to right so the block on the
+  // right sits on the lighter end of the bar and keeps its contrast.
+  background:
+    "linear-gradient(90deg, var(--sh-utility-bg-deep) 0%, var(--sh-utility-bg) 68%, var(--sh-utility-bg) 100%)",
+  color: "var(--sh-utility-ink)",
+  boxShadow: "inset 0 -1px 0 rgba(255, 255, 255, 0.09)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  padding: "0 clamp(12px, 4vw, 24px)",
+};
+
+// The name and the term share a right edge and a hairline rule on their
+// left, which is what turns two labels into one heading block.
+const utilityBlockStyle = {
+  display: "grid",
+  justifyItems: "end",
+  gap: "2px",
+  lineHeight: 1.1,
+  minWidth: 0,
+  textAlign: "right",
+  paddingLeft: "12px",
+  borderLeft: "1px solid rgba(255, 255, 255, 0.22)",
+};
+
+const utilityInstitutionStyle = {
+  fontSize: "13px",
+  fontWeight: 700,
+  letterSpacing: "0.04em",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  maxWidth: "100%",
+};
+
+// A pill rather than plain small caps: the term is a changing value, and
+// giving it a container says so without shouting louder than the name.
+const utilityTermStyle = {
+  fontSize: "10px",
+  fontWeight: 600,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase",
+  whiteSpace: "nowrap",
+  padding: "2px 9px",
+  borderRadius: "999px",
+  background: "rgba(255, 255, 255, 0.14)",
+  border: "1px solid rgba(255, 255, 255, 0.16)",
+};
+
+const topbarStyle = {
+  position: "fixed",
+  top: "var(--sh-utility-strip)",
   left: 0,
   right: 0,
   height: "78px",
   zIndex: 997,
   background: "var(--sh-topbar-bg)",
   borderBottom: `1px solid ${colors.border}`,
-  boxShadow: "0 8px 24px rgba(0,0,0,0.07)",
+  boxShadow: "var(--sh-shadow-md)",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -1359,25 +1470,34 @@ const brandLogoStyle = {
   flex: "0 0 auto",
   objectFit: "contain",
   display: "block",
+  filter: "drop-shadow(0 6px 12px rgba(124, 45, 18, 0.18))",
 };
 
 const brandTextWrapStyle = {
   display: "grid",
-  gap: "1px",
+  gap: "3px",
   lineHeight: 1,
   minWidth: 0,
 };
 
 const brandNameStyle = {
   display: "block",
+  backgroundImage: `linear-gradient(95deg, ${colors.primary}, ${colors.primaryDark})`,
+  WebkitBackgroundClip: "text",
+  backgroundClip: "text",
+  // Keeps the painted color as the fallback if background-clip: text is
+  // not honoured, so the name never renders invisible.
+  WebkitTextFillColor: "transparent",
+  color: colors.primary,
+  letterSpacing: "-0.01em",
 };
 
 const brandCampusStyle = {
   display: "block",
   color: colors.muted,
-  fontSize: "clamp(11px, 2.4vw, 14px)",
-  fontWeight: "800",
-  letterSpacing: "0",
+  fontSize: "clamp(10px, 2.2vw, 12px)",
+  fontWeight: "700",
+  letterSpacing: "0.16em",
 };
 
 const topbarActionsStyle = {
@@ -1514,6 +1634,14 @@ const notificationItemStyle = {
   textAlign: "left",
 };
 
+// Unread carries a left rule as well as a tint, so the two states stay apart
+// in both themes and for anyone who cannot see the colour.
+const unreadNotificationItemStyle = {
+  ...notificationItemStyle,
+  borderLeft: `3px solid ${colors.primary}`,
+  background: colors.primarySoft,
+};
+
 const notificationItemHeaderStyle = {
   display: "flex",
   alignItems: "center",
@@ -1620,7 +1748,7 @@ const profileMenuStyle = {
   background: colors.surface,
   border: `1px solid ${colors.border}`,
   borderRadius: "14px",
-  boxShadow: "0 18px 40px rgba(0,0,0,0.12)",
+  boxShadow: "var(--sh-shadow-lg)",
   padding: "8px",
   display: "grid",
   gap: "6px",
@@ -1646,10 +1774,11 @@ const profileLogoutItemStyle = (hover) => ({
 
 const sidebarStyle = {
   position: "fixed",
-  top: "70px",
+  // Sits under the app bar, which now sits under the institutional strip.
+  top: "calc(70px + var(--sh-utility-strip))",
   left: 0,
   width: "min(290px, calc(100vw - 28px))",
-  height: "calc(100vh - 70px)",
+  height: "calc(100vh - 70px - var(--sh-utility-strip))",
   background: colors.surface,
   padding: "clamp(16px, 5vw, 22px)",
   borderRight: `1px solid ${colors.border}`,
@@ -1904,7 +2033,7 @@ const profileHeroCardStyle = (compact) => ({
   borderRadius: "16px",
   background: "linear-gradient(90deg, var(--sh-header-start) 40%, var(--sh-header-end))",
   border: `1px solid ${colors.border}`,
-  boxShadow: "0 10px 25px rgba(0,0,0,0.06)",
+  boxShadow: "var(--sh-shadow-md)",
 });
 
 const profileAvatarStackStyle = {

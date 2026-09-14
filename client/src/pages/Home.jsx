@@ -678,7 +678,7 @@ const navStyle = {
   padding: "clamp(14px, 3vw, 18px) clamp(16px, 5vw, 32px)",
   background: "var(--sh-topbar-bg)",
   borderBottom: `1px solid ${colors.border}`,
-  boxShadow: "0 2px 12px rgba(0,0,0,0.08)",
+  boxShadow: "var(--sh-shadow-sm)",
   flexWrap: "wrap",
 };
 
@@ -827,7 +827,7 @@ const profileMenuStyle = {
   background: colors.surface,
   border: `1px solid ${colors.border}`,
   borderRadius: "14px",
-  boxShadow: "0 18px 40px rgba(0,0,0,0.12)",
+  boxShadow: "var(--sh-shadow-lg)",
   padding: "8px",
   display: "grid",
   gap: "6px",
@@ -929,7 +929,7 @@ const profileHeroCardStyle = {
   borderRadius: "16px",
   border: `1px solid ${colors.border}`,
   background: "linear-gradient(90deg, var(--sh-header-start) 40%, var(--sh-header-end))",
-  boxShadow: "0 10px 25px rgba(0,0,0,0.06)",
+  boxShadow: "var(--sh-shadow-md)",
   marginBottom: "16px",
 };
 
@@ -1315,7 +1315,7 @@ const cardStyle = {
   border: `1px solid ${colors.border}`,
   borderRadius: "20px",
   width: "100%",
-  boxShadow: "0 10px 25px rgba(0,0,0,0.08)",
+  boxShadow: "var(--sh-shadow-md)",
 };
 
 export default Home;

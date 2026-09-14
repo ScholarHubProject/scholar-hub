@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api, { getStoredUser } from "../api";
+import { HeroBanner } from "../components/ui";
 import {
+  buttonPrimaryStyle,
   buttonSecondaryStyle,
   cardStyle,
   colors,
   eyebrowStyle,
   mutedTextStyle,
-  pageHeaderStyle,
   pageStyle,
   shellStyle,
   statusPillStyle,
-  titleStyle,
 } from "../sharedStyles";
 
 const AUTO_SYNC_MS = 5000;
@@ -34,66 +34,54 @@ const formatDate = (value) => {
   });
 };
 
-const getNotificationTime = (application) =>
-  application.status_updated_at || application.created_at;
-
+// The feed used to be assembled here from two endpoints, which meant the page
+// and the navbar bell each built their own version of the same list and could
+// disagree about it. It now comes from /notifications already merged, sorted
+// and carrying its read state, so both read the same answer.
 const Notifications = () => {
   const user = getCurrentUser();
-  const [announcements, setAnnouncements] = useState([]);
-  const [applications, setApplications] = useState([]);
+  const isAdmin = user?.role === "Admin";
+
+  const [items, setItems] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [marking, setMarking] = useState(false);
   const syncingRef = useRef(false);
 
-  const loadNotifications = useCallback(
-    async ({ initial = false, silent = false } = {}) => {
-      if (syncingRef.current) {
-        return;
+  const loadNotifications = useCallback(async ({ initial = false, silent = false } = {}) => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+
+    // The mount call sets nothing synchronously: `loading` already starts as
+    // true and `refreshing` as false, so touching them here would only queue
+    // a redundant render while the effect is still running.
+    if (!initial) {
+      setRefreshing(true);
+    }
+
+    try {
+      const response = await api.get("/notifications");
+
+      setItems(
+        Array.isArray(response.data?.notifications) ? response.data.notifications : []
+      );
+      setUnreadCount(response.data?.unreadCount || 0);
+      setNotice(null);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.log("Notifications load error:", error);
+      if (!silent) {
+        setNotice("Failed to load notifications");
       }
-
-      syncingRef.current = true;
-
-      // The mount call sets nothing synchronously: `loading` already starts as
-      // true and `refreshing` as false, so touching them here would only queue
-      // a redundant render while the effect is still running.
-      if (!initial) {
-        setRefreshing(true);
-      }
-
-      try {
-        const requests = [api.get("/announcements")];
-
-        if (user?.email) {
-          requests.push(api.get("/applications/student"));
-        }
-
-        const [announcementsResponse, applicationsResponse] = await Promise.all(requests);
-
-        setAnnouncements(Array.isArray(announcementsResponse.data) ? announcementsResponse.data : []);
-        setApplications(
-          user?.email && applicationsResponse
-            ? Array.isArray(applicationsResponse.data)
-              ? applicationsResponse.data
-              : []
-            : []
-        );
-        setNotice(null);
-        setLastUpdated(new Date());
-      } catch (error) {
-        console.log("Notifications load error:", error);
-        if (!silent) {
-          setNotice("Failed to load notifications");
-        }
-      } finally {
-        syncingRef.current = false;
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [user?.email]
-  );
+    } finally {
+      syncingRef.current = false;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     // With initial: true this call sets no state synchronously; everything it
@@ -122,66 +110,116 @@ const Notifications = () => {
     };
   }, [loadNotifications]);
 
-  const feed = useMemo(() => {
-    const announcementFeed = announcements.map((announcement) => ({
-      id: `announcement-${announcement.id}`,
-      type: "Announcement",
-      title: announcement.title || "Announcement",
-      body: announcement.content,
-      created_at: announcement.created_at,
-    }));
+  // Marked optimistically. The request is cheap and idempotent, and a card that
+  // stays highlighted for half a second after being read is more jarring than a
+  // rare flicker back if the write fails.
+  const markRead = async (keys) => {
+    if (keys.length === 0) return;
 
-    const applicationFeed = applications.map((application) => ({
-      id: `application-${application.id}`,
-      type: "Application Update",
-      title: application.scholarship_title || "Application",
-      body: `${application.status}${application.remarks ? ` - ${application.remarks}` : ""}`,
-      created_at: getNotificationTime(application),
-    }));
-
-    return [...announcementFeed, ...applicationFeed].sort(
-      (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    setItems((current) =>
+      current.map((item) => (keys.includes(item.key) ? { ...item, read: true } : item))
     );
-  }, [announcements, applications]);
+    setUnreadCount((current) => Math.max(0, current - keys.length));
+
+    try {
+      await api.post("/notifications/read", { keys });
+    } catch (error) {
+      console.log("Notification read error:", error);
+      loadNotifications({ silent: true });
+    }
+  };
+
+  const markAllRead = async () => {
+    setMarking(true);
+
+    try {
+      const response = await api.post("/notifications/read-all");
+      setItems((current) => current.map((item) => ({ ...item, read: true })));
+      setUnreadCount(response.data?.unreadCount || 0);
+    } catch (error) {
+      console.log("Notification read-all error:", error);
+      setNotice("Could not mark those as read. Please try again.");
+    } finally {
+      setMarking(false);
+    }
+  };
 
   return (
     <div style={pageStyle}>
       <main style={shellStyle}>
-        <header style={pageHeaderStyle}>
-          <span style={eyebrowStyle}>Student Updates</span>
-          <h1 style={titleStyle}>Notifications</h1>
-          <p style={mutedTextStyle}>
-            Live announcements and application updates synced from the admin side.
-          </p>
-
-          <div style={headerActionsStyle}>
-            <span style={liveBadgeStyle}>{refreshing ? "Syncing..." : "Live"}</span>
-            <button type="button" style={buttonSecondaryStyle} onClick={() => loadNotifications()} disabled={refreshing}>
-              Refresh
-            </button>
-          </div>
-
-          <p style={metaLineStyle}>
-            {lastUpdated ? `Last synced ${lastUpdated.toLocaleTimeString()}` : "Waiting for first sync..."}
-          </p>
-        </header>
+        <HeroBanner
+          eyebrow={isAdmin ? "Office updates" : "Student updates"}
+          title="Notifications"
+          subtitle={
+            isAdmin
+              ? "Applications waiting for review, withdrawals, and the announcements going out to the campus."
+              : "Announcements and decisions on your applications, synced live from the scholarship office."
+          }
+          actions={
+            <>
+              <span style={liveBadgeStyle}>{refreshing ? "Syncing…" : "Live"}</span>
+              <span style={metaLineStyle}>
+                {lastUpdated
+                  ? `Last synced ${lastUpdated.toLocaleTimeString()}`
+                  : "Waiting for first sync…"}
+              </span>
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  style={buttonPrimaryStyle}
+                  onClick={markAllRead}
+                  disabled={marking}
+                >
+                  {marking ? "Marking..." : `Mark all ${unreadCount} as read`}
+                </button>
+              )}
+              <button
+                type="button"
+                style={{ ...buttonSecondaryStyle, marginLeft: "auto" }}
+                onClick={() => loadNotifications()}
+                disabled={refreshing}
+              >
+                Refresh
+              </button>
+            </>
+          }
+        />
 
         {notice && <div style={noticeStyle}>{notice}</div>}
 
         {loading ? (
           <div style={emptyStateStyle}>Loading notifications...</div>
-        ) : feed.length === 0 ? (
+        ) : items.length === 0 ? (
           <div style={emptyStateStyle}>No notifications yet.</div>
         ) : (
           <section style={listStyle}>
-            {feed.map((item) => (
-              <article key={item.id} style={noticeCardStyle}>
+            {items.map((item) => (
+              <article
+                key={item.key}
+                style={item.read ? noticeCardStyle : unreadCardStyle}
+              >
                 <div style={itemHeaderStyle}>
-                  <span style={statusPillStyle}>{item.type}</span>
+                  <div style={pillRowStyle}>
+                    <span style={statusPillStyle}>{item.type}</span>
+                    {!item.read && <span style={unreadDotStyle}>New</span>}
+                  </div>
                   <span style={timeStyle}>{formatDate(item.created_at)}</span>
                 </div>
+
                 <h3 style={cardTitleStyle}>{item.title}</h3>
-                <p style={mutedTextStyle}>{item.body}</p>
+                {item.body && <p style={mutedTextStyle}>{item.body}</p>}
+
+                {!item.read && (
+                  <div style={cardActionsStyle}>
+                    <button
+                      type="button"
+                      style={buttonSecondaryStyle}
+                      onClick={() => markRead([item.key])}
+                    >
+                      Mark as read
+                    </button>
+                  </div>
+                )}
               </article>
             ))}
           </section>
@@ -191,14 +229,6 @@ const Notifications = () => {
   );
 };
 
-const headerActionsStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-  flexWrap: "wrap",
-  marginTop: "10px",
-};
-
 const liveBadgeStyle = {
   ...eyebrowStyle,
   marginBottom: 0,
@@ -206,8 +236,7 @@ const liveBadgeStyle = {
 
 const metaLineStyle = {
   ...mutedTextStyle,
-  marginTop: "12px",
-  fontSize: "13px",
+  fontSize: "12.5px",
 };
 
 const noticeStyle = {
@@ -234,12 +263,38 @@ const noticeCardStyle = {
   gap: "12px",
 };
 
+// Unread is carried by a left rule and a "New" tag, not by colour alone: the
+// two cards have to stay distinguishable in both themes and to anyone who
+// cannot see the tint.
+const unreadCardStyle = {
+  ...noticeCardStyle,
+  borderLeft: `4px solid ${colors.primary}`,
+  background: colors.primarySoft,
+};
+
 const itemHeaderStyle = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
   gap: "12px",
   flexWrap: "wrap",
+};
+
+const pillRowStyle = {
+  display: "flex",
+  gap: "8px",
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const unreadDotStyle = {
+  ...statusPillStyle,
+  background: colors.primary,
+  color: "#ffffff",
+  border: "none",
+  fontSize: "11px",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
 };
 
 const timeStyle = {
@@ -250,6 +305,11 @@ const timeStyle = {
 const cardTitleStyle = {
   margin: 0,
   color: colors.text,
+};
+
+const cardActionsStyle = {
+  display: "flex",
+  justifyContent: "flex-end",
 };
 
 export default Notifications;

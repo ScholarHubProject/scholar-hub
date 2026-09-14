@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
+import { HeroBanner } from "../components/ui";
 import {
   buttonPrimaryStyle,
   buttonSecondaryStyle,
-  cardGridStyle,
   cardStyle,
   colors,
   eyebrowStyle,
   mutedTextStyle,
-  pageHeaderStyle,
   pageStyle,
   shellStyle,
   statusPillStyle,
-  titleStyle,
 } from "../sharedStyles";
 
 const AUTO_SYNC_MS = 5000;
@@ -109,24 +107,29 @@ const ScholarshipPage = () => {
   return (
     <div style={pageStyle}>
       <main style={shellStyle}>
-        <header style={pageHeaderStyle}>
-          <span style={eyebrowStyle}>Scholarship Opportunities</span>
-          <h1 style={titleStyle}>Available Scholarships</h1>
-          <p style={mutedTextStyle}>
-            Browse scholarship posts published by the admin office.
-          </p>
-
-          <div style={headerActionsStyle}>
-            <span style={statusBadgeStyle}>{refreshing ? "Syncing..." : "Live"}</span>
-            <button type="button" style={buttonSecondaryStyle} onClick={() => loadScholarships()} disabled={refreshing}>
-              Refresh
-            </button>
-          </div>
-
-          <p style={updatedTextStyle}>
-            {lastUpdated ? `Last synced ${lastUpdated.toLocaleTimeString()}` : "Waiting for first sync..."}
-          </p>
-        </header>
+        <HeroBanner
+          eyebrow="Scholarship opportunities"
+          title="Available Scholarships"
+          subtitle="Browse the scholarship programs published by the admin office and apply to the ones you qualify for."
+          actions={
+            <>
+              <span style={statusBadgeStyle}>{refreshing ? "Syncing…" : "Live"}</span>
+              <span style={updatedTextStyle}>
+                {lastUpdated
+                  ? `Last synced ${lastUpdated.toLocaleTimeString()}`
+                  : "Waiting for first sync…"}
+              </span>
+              <button
+                type="button"
+                style={{ ...buttonSecondaryStyle, marginLeft: "auto" }}
+                onClick={() => loadScholarships()}
+                disabled={refreshing}
+              >
+                Refresh
+              </button>
+            </>
+          }
+        />
 
         {loading ? (
           <div style={stateCardStyle}>Loading scholarships...</div>
@@ -140,51 +143,57 @@ const ScholarshipPage = () => {
         ) : scholarships.length === 0 ? (
           <div style={stateCardStyle}>No scholarships are available right now.</div>
         ) : (
-          <section style={cardGridStyle}>
+          <section style={scholarshipListStyle}>
             {scholarships.map((scholarship) => (
               <article key={scholarship.id} style={scholarshipCardStyle}>
-                <span style={statusPillStyle}>{scholarship.status}</span>
-                <p style={scholarshipIdStyle}>
-                  Scholarship ID: {scholarship.scholarship_code || `#${scholarship.id}`}
-                </p>
-                <h3 style={cardTitleStyle}>{scholarship.title}</h3>
-                <p style={slotsStyle}>
-                  <strong>Available Slots:</strong> {Number(scholarship.available_slots) || 0}
-                </p>
-                <p style={mutedTextStyle}>{scholarship.description}</p>
-                <div style={detailsGridStyle}>
-                  <div>
-                    <h4 style={detailTitleStyle}>Benefits</h4>
-                    <p style={detailTextStyle}>
-                      {scholarship.benefits || "No benefits listed yet."}
+                <div style={cardMainStyle}>
+                  <div style={cardHeaderStyle}>
+                    <span style={statusPillStyle}>{scholarship.status}</span>
+                    <p style={scholarshipIdStyle}>
+                      Scholarship ID: {scholarship.scholarship_code || `#${scholarship.id}`}
                     </p>
                   </div>
-                  <div>
-                    <h4 style={detailTitleStyle}>Qualification</h4>
-                    <p style={detailTextStyle}>
-                      {scholarship.qualification || "No qualification listed yet."}
-                    </p>
-                  </div>
-                  <div>
-                    <h4 style={detailTitleStyle}>Requirements</h4>
-                    <p style={detailTextStyle}>
-                      {scholarship.requirements || "No requirements listed yet."}
-                    </p>
+                  <h3 style={cardTitleStyle}>{scholarship.title}</h3>
+                  <p style={mutedTextStyle}>{scholarship.description}</p>
+                  <div style={detailsGridStyle}>
+                    <div>
+                      <h4 style={detailTitleStyle}>Benefits</h4>
+                      <p style={detailTextStyle}>
+                        {scholarship.benefits || "No benefits listed yet."}
+                      </p>
+                    </div>
+                    <div>
+                      <h4 style={detailTitleStyle}>Qualification</h4>
+                      <p style={detailTextStyle}>
+                        {scholarship.qualification || "No qualification listed yet."}
+                      </p>
+                    </div>
+                    <div>
+                      <h4 style={detailTitleStyle}>Requirements</h4>
+                      <p style={detailTextStyle}>
+                        {scholarship.requirements || "No requirements listed yet."}
+                      </p>
+                    </div>
                   </div>
                 </div>
-                <p style={deadlineStyle}>
-                  <strong>Deadline:</strong> {formatDeadline(scholarship.deadline)}
-                </p>
-                <button
-                  style={{
-                    ...buttonPrimaryStyle,
-                    ...(scholarship.status === "Closed" ? disabledButtonStyle : {}),
-                  }}
-                  disabled={scholarship.status === "Closed"}
-                  onClick={() => handleApply(scholarship)}
-                >
-                  {scholarship.status === "Closed" ? "Closed" : "Apply Now"}
-                </button>
+                <aside style={cardSideStyle}>
+                  <p style={slotsStyle}>
+                    <strong>Available Slots:</strong> {Number(scholarship.available_slots) || 0}
+                  </p>
+                  <p style={deadlineStyle}>
+                    <strong>Deadline:</strong> {formatDeadline(scholarship.deadline)}
+                  </p>
+                  <button
+                    style={{
+                      ...buttonPrimaryStyle,
+                      ...(scholarship.status === "Closed" ? disabledButtonStyle : {}),
+                    }}
+                    disabled={scholarship.status === "Closed"}
+                    onClick={() => handleApply(scholarship)}
+                  >
+                    {scholarship.status === "Closed" ? "Closed" : "Apply Now"}
+                  </button>
+                </aside>
               </article>
             ))}
           </section>
@@ -194,18 +203,42 @@ const ScholarshipPage = () => {
   );
 };
 
-const scholarshipCardStyle = {
-  ...cardStyle,
+const scholarshipListStyle = {
   display: "grid",
-  gap: "14px",
+  gap: "clamp(14px, 3vw, 20px)",
 };
 
-const headerActionsStyle = {
+// One card per row: the details read left to right and the slots, deadline and
+// apply button sit in a rail on the right. The rail wraps underneath on narrow
+// screens because inline styles cannot carry a media query.
+const scholarshipCardStyle = {
+  ...cardStyle,
   display: "flex",
-  alignItems: "center",
-  gap: "12px",
   flexWrap: "wrap",
-  marginTop: "10px",
+  alignItems: "flex-start",
+  gap: "clamp(16px, 3vw, 28px)",
+};
+
+const cardMainStyle = {
+  flex: "1 1 320px",
+  minWidth: 0,
+  display: "grid",
+  gap: "12px",
+};
+
+const cardSideStyle = {
+  flex: "0 1 220px",
+  minWidth: "200px",
+  display: "grid",
+  gap: "12px",
+  alignContent: "start",
+};
+
+const cardHeaderStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "10px",
 };
 
 const statusBadgeStyle = {
@@ -215,8 +248,7 @@ const statusBadgeStyle = {
 
 const updatedTextStyle = {
   ...mutedTextStyle,
-  marginTop: "12px",
-  fontSize: "13px",
+  fontSize: "12.5px",
 };
 
 const cardTitleStyle = {
@@ -242,7 +274,7 @@ const slotsStyle = {
 
 const detailsGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))",
   gap: "14px",
 };
 

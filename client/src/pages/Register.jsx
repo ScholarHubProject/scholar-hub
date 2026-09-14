@@ -1,22 +1,70 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import api, { saveSession } from "../api";
+import { rememberAccount } from "../savedAccounts";
 import {
-  authCardStyle,
-  authLogoStyle,
-  authWithLogoPageStyle,
-  buttonPrimaryStyle,
-  buttonSecondaryStyle,
-  colors,
-  inputStyle,
-  mutedTextStyle,
-} from "../sharedStyles";
+  AuthField,
+  AuthMessage,
+  AuthShell,
+  FieldShell,
+  FormGrid,
+  FormSection,
+  FormStack,
+  PasswordField,
+  PasswordMeter,
+  SubmitButton,
+} from "../components/authUi";
+import {
+  CapIcon,
+  IdCardIcon,
+  MailIcon,
+  PhoneIcon,
+  UserIcon,
+} from "../components/icons";
+import { colors, mutedTextStyle } from "../sharedStyles";
+import {
+  EMAIL_PATTERN,
+  SCHOOL_ID_LENGTH,
+  describePasswordProblem,
+  isCompleteSchoolId,
+  formatContactInput,
+  formatCourseYear,
+  formatFullName,
+  formatSchoolId,
+} from "../authRules";
+
+const FIELD_ORDER = [
+  "name",
+  "schoolIdNumber",
+  "email",
+  "courseYear",
+  "contactNumber",
+  "password",
+  "confirmPassword",
+];
 
 const Register = () => {
   const navigate = useNavigate();
 
-  const [showNotification, setShowNotification] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const nameRef = useRef(null);
+  const schoolIdRef = useRef(null);
+  const emailRef = useRef(null);
+  const courseYearRef = useRef(null);
+  const contactRef = useRef(null);
+  const passwordRef = useRef(null);
+  const confirmPasswordRef = useRef(null);
+
+  const focusField = (field) =>
+    ({
+      name: nameRef,
+      schoolIdNumber: schoolIdRef,
+      email: emailRef,
+      courseYear: courseYearRef,
+      contactNumber: contactRef,
+      password: passwordRef,
+      confirmPassword: confirmPasswordRef,
+    })[field]?.current?.focus();
+
   const [formData, setFormData] = useState({
     name: "",
     schoolIdNumber: "",
@@ -24,409 +72,396 @@ const Register = () => {
     courseYear: "",
     contactNumber: "",
     password: "",
+    confirmPassword: "",
   });
-  const passwordIssues = getPasswordIssues(formData.password);
-  const showPasswordWarning = formData.password.length > 0 && passwordIssues.length > 0;
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [touched, setTouched] = useState({});
+  const [notice, setNotice] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isDone, setIsDone] = useState(false);
 
-  const updateField = (field, value) => {
-    setFormData((current) => ({
-      ...current,
-      [field]:
-        field === "name"
-          ? formatFullName(value)
-          : field === "courseYear"
-            ? value.toUpperCase()
-            : field === "contactNumber"
-              ? formatContactInput(value)
-            : value,
-    }));
+  const updateField = (field, rawValue) => {
+    const value = formatters[field] ? formatters[field](rawValue) : rawValue;
+
+    setFormData((current) => ({ ...current, [field]: value }));
+    setNotice(null);
+    setFieldErrors((current) => {
+      const clearsConfirm = field === "password" && current.confirmPassword;
+      if (!current[field] && !clearsConfirm) return current;
+
+      const next = { ...current };
+      delete next[field];
+      // Retyping the password invalidates a "does not match" complaint
+      // about the confirmation, which the user has not touched.
+      if (field === "password") delete next.confirmPassword;
+      return next;
+    });
   };
 
-  const handleRegister = async () => {
-    if (
-      !formData.name.trim() ||
-      !formData.schoolIdNumber.trim() ||
-      !formData.email.trim() ||
-      !formData.password.trim()
-    ) {
-      alert("Please enter your name, school ID number, email, and password");
+  // Checked on blur so the user is told about one field while they are
+  // still near it, rather than being handed six complaints at the end.
+  const validateOne = (field, data = formData) => {
+    const value = data[field]?.trim() || "";
+
+    switch (field) {
+      case "name":
+        if (!value) return "Enter your full name.";
+        if (value.length < 2) return "That name looks too short.";
+        return null;
+      case "schoolIdNumber":
+        if (!value) return "Enter your school ID number.";
+        // The formatter has already dropped anything that is not a digit
+        // and stopped at nine, so a short value means it is unfinished.
+        // The dash it inserts is not one of the nine, hence the digit count.
+        if (!isCompleteSchoolId(value)) {
+          return `A school ID number is ${SCHOOL_ID_LENGTH} digits, like 2026-00454.`;
+        }
+        return null;
+      case "email":
+        if (!value) return "Enter your email address.";
+        if (!EMAIL_PATTERN.test(value)) return "That does not look like an email address.";
+        return null;
+      case "contactNumber":
+        // Optional, but a half-typed number is worth catching here rather
+        // than when a coordinator tries to ring it.
+        if (value && value.length !== 10) {
+          return "Enter the 10 digits after +63, starting with 9.";
+        }
+        if (value && !value.startsWith("9")) {
+          return "A mobile number after +63 starts with 9.";
+        }
+        return null;
+      case "password":
+        return describePasswordProblem(data.password);
+      case "confirmPassword":
+        if (!data.confirmPassword) return "Retype your password.";
+        if (data.confirmPassword !== data.password) return "The two passwords do not match.";
+        return null;
+      default:
+        return null;
+    }
+  };
+
+  const handleBlur = (field) => () => {
+    setTouched((current) => ({ ...current, [field]: true }));
+
+    const error = validateOne(field);
+    setFieldErrors((current) => {
+      const next = { ...current };
+      if (error) next[field] = error;
+      else delete next[field];
+      return next;
+    });
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    const errors = {};
+    FIELD_ORDER.forEach((field) => {
+      const error = validateOne(field);
+      if (error) errors[field] = error;
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setTouched(Object.fromEntries(FIELD_ORDER.map((field) => [field, true])));
+      setNotice(null);
+
+      focusField(FIELD_ORDER.find((field) => errors[field]));
       return;
     }
 
-    if (passwordIssues.length > 0) {
-      alert(`Password must include ${formatPasswordIssues(passwordIssues)}.`);
-      return;
-    }
+    setFieldErrors({});
+    setNotice(null);
+    setIsLoading(true);
 
-    const cleanContactNumber = formatContactForSubmit(formData.contactNumber);
-
-    const newUser = {
-      name: formData.name.trim(),
-      schoolIdNumber: formData.schoolIdNumber.trim(),
-      email: formData.email.trim(),
-      courseYear: formData.courseYear.trim(),
-      contactNumber: cleanContactNumber,
-      role: "Student",
-    };
+    const contactNumber = formData.contactNumber.trim()
+      ? `+63${formData.contactNumber.trim()}`
+      : "";
 
     try {
-      // `role` is deliberately not sent: the server always creates a Student,
-      // and used to take this field straight from the body.
+      // `role` is deliberately not sent: the server always creates a
+      // Student, and used to take this field straight from the body.
       const response = await api.post("/register", {
         fullname: formData.name.trim(),
         schoolIdNumber: formData.schoolIdNumber.trim(),
         email: formData.email.trim(),
         courseYear: formData.courseYear.trim(),
-        contactNumber: cleanContactNumber,
-        password: formData.password.trim(),
+        contactNumber,
+        password: formData.password,
       });
 
-      saveSession(response.data?.token, response.data?.user || newUser);
-      setShowNotification(true);
+      setIsDone(true);
 
-      setTimeout(() => {
-        navigate("/student-dashboard");
-      }, 1200);
+      // The account exists and is signed in either way; what changes is
+      // whether a confirmation link is waiting. Reported from what the server
+      // says it actually sent rather than assumed, so a deployment with no
+      // mail provider does not promise an email that was never sent.
+      const verificationSent = response.data?.emailVerificationSent;
+      const verificationPending = response.data?.user?.emailVerified === false;
+
+      setNotice({
+        tone: verificationPending && !verificationSent ? "info" : "success",
+        text: !verificationPending
+          ? "Account created. Taking you to your dashboard..."
+          : verificationSent
+            ? `Account created. Confirm your address from the link sent to ${formData.email.trim()} before you submit an application.`
+            : "Account created, but the confirmation email could not be sent. Ask the scholarship office to confirm your address before you apply.",
+      });
+
+      saveSession(response.data?.token, response.data?.user);
+      // The new account joins the tiles on the login page, so the next
+      // sign-in on this browser is one tap and a password.
+      rememberAccount(response.data?.user);
+      // Long enough to read the confirmation line, which is the one thing on
+      // this screen the student has to act on later.
+      setTimeout(() => navigate("/student-dashboard"), verificationPending ? 3200 : 1100);
     } catch (error) {
-      console.log("Registration error:", error);
+      const message = error.response?.data?.message;
 
+      // A taken email is a problem with one field, so it is reported on
+      // that field instead of in a dialog the user has to dismiss before
+      // they can see which box to change.
       if (error.response?.status === 409) {
-        alert(
-          error.response?.data?.message ||
-            `The email ${formData.email.trim()} is already registered. Please log in instead or sign up with a different email address.`
-        );
+        setFieldErrors({ email: message || "That email is already registered." });
+        focusField("email");
+        setNotice({
+          tone: "error",
+          text: "That email already has an account. Sign in instead, or use another address.",
+        });
         return;
       }
 
-      alert(error.response?.data?.message || "Registration Failed");
+      setNotice({
+        tone: "error",
+        text:
+          message ||
+          "Cannot reach the server right now. Check your connection and try again.",
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  const showError = (field) => (touched[field] ? fieldErrors[field] : undefined);
+
   return (
-    <div style={registerPageStyle}>
-      {showNotification && (
-        <div style={notificationStyle}>
-          Registration Successful!
-        </div>
-      )}
-
-      <img src="/design.png" alt="Scholar Hub" style={registerLogoStyle} />
-
-      <div style={registerCardStyle}>
-        <h1 style={brandStyle}>Student Registration</h1>
-
-        <p style={subtitleStyle}>
-          Create an account to apply for scholarships.
-        </p>
-
-        <div style={formStackStyle}>
-          <input
-            style={authInputStyle}
-            type="text"
-            placeholder="Full Name"
-            value={formData.name}
-            autoCapitalize="characters"
-            onChange={(e) => updateField("name", e.target.value)}
-          />
-
-          <input
-            style={authInputStyle}
-            type="text"
-            placeholder="School ID Number"
-            value={formData.schoolIdNumber}
-            onChange={(e) => updateField("schoolIdNumber", e.target.value)}
-          />
-
-          <input
-            style={authInputStyle}
-            type="email"
-            placeholder="Email Address"
-            value={formData.email}
-            onChange={(e) => updateField("email", e.target.value)}
-          />
-
-          <div style={twoColumnFieldStyle}>
-            <input
-              style={authInputStyle}
-              type="text"
-              placeholder="Course and Year"
-              value={formData.courseYear}
-              autoCapitalize="characters"
-              onChange={(e) => updateField("courseYear", e.target.value)}
-            />
-
-            <div style={contactFieldWrapStyle}>
-              <span style={contactPrefixStyle}>+63</span>
-              <input
-                style={contactInputStyle}
-                type="text"
-                placeholder="Contact Number"
-                value={formData.contactNumber}
-                onChange={(e) => updateField("contactNumber", e.target.value)}
+    <AuthShell
+      title="Student Registration"
+      subtitle="Create an account to apply for scholarships and track your status."
+      width={840}
+      logoLift={18}
+    >
+      <form onSubmit={handleSubmit} noValidate>
+        <FormStack gap={22}>
+          <FormSection
+            title="Student details"
+            caption="Enter these as they appear on your school records."
+          >
+            <FormGrid>
+              <AuthField
+                id="register-name"
+                name="name"
+                className="sh-span-all"
+                label="Full name"
+                icon={UserIcon}
+                placeholder="DELA CRUZ, JUAN M."
+                autoComplete="name"
+                autoCapitalize="characters"
+                autoFocus
+                inputRef={nameRef}
+                value={formData.name}
+                error={showError("name")}
+                onChange={(e) => updateField("name", e.target.value)}
+                onBlur={handleBlur("name")}
               />
+
+              <AuthField
+                id="register-school-id"
+                name="schoolIdNumber"
+                label="School ID number"
+                icon={IdCardIcon}
+                placeholder="2026-00454"
+                hint={`Numbers only — ${SCHOOL_ID_LENGTH} digits. The dash is added for you.`}
+                inputMode="numeric"
+                maxLength={SCHOOL_ID_LENGTH + 1}
+                autoComplete="off"
+                inputRef={schoolIdRef}
+                value={formData.schoolIdNumber}
+                error={showError("schoolIdNumber")}
+                onChange={(e) => updateField("schoolIdNumber", e.target.value)}
+                onBlur={handleBlur("schoolIdNumber")}
+              />
+
+              <AuthField
+                id="register-email"
+                name="email"
+                label="Email address"
+                type="email"
+                icon={MailIcon}
+                placeholder="you@school.edu.ph"
+                hint="Approvals, remarks and password resets are sent here."
+                autoComplete="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
+                inputRef={emailRef}
+                value={formData.email}
+                error={showError("email")}
+                onChange={(e) => updateField("email", e.target.value)}
+                onBlur={handleBlur("email")}
+              />
+
+              <AuthField
+                id="register-course"
+                name="courseYear"
+                label="Course and year"
+                icon={CapIcon}
+                placeholder="BSIT 3"
+                optional
+                autoCapitalize="characters"
+                inputRef={courseYearRef}
+                value={formData.courseYear}
+                error={showError("courseYear")}
+                onChange={(e) => updateField("courseYear", e.target.value)}
+                onBlur={handleBlur("courseYear")}
+              />
+
+              <FieldShell
+                id="register-contact"
+                label="Contact number"
+                icon={PhoneIcon}
+                optional
+                error={showError("contactNumber")}
+              >
+                <span style={dialCodeStyle}>+63</span>
+                <input
+                  id="register-contact"
+                  name="contactNumber"
+                  ref={contactRef}
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="9XX XXX XXXX"
+                  autoComplete="tel-national"
+                  maxLength={10}
+                  style={contactInputStyle}
+                  value={formData.contactNumber}
+                  aria-invalid={showError("contactNumber") ? "true" : undefined}
+                  aria-describedby={
+                    showError("contactNumber") ? "register-contact-note" : undefined
+                  }
+                  onChange={(e) => updateField("contactNumber", e.target.value)}
+                  onBlur={handleBlur("contactNumber")}
+                />
+              </FieldShell>
+            </FormGrid>
+          </FormSection>
+
+          <FormSection
+            title="Account security"
+            caption="You will sign in with the email above and this password."
+            divided
+          >
+            <FormGrid>
+              <PasswordField
+                id="register-password"
+                name="password"
+                label="Password"
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+                inputRef={passwordRef}
+                value={formData.password}
+                error={showError("password")}
+                onChange={(e) => updateField("password", e.target.value)}
+                onBlur={handleBlur("password")}
+              />
+
+              <PasswordField
+                id="register-confirm-password"
+                name="confirmPassword"
+                label="Confirm password"
+                placeholder="Retype your password"
+                autoComplete="new-password"
+                inputRef={confirmPasswordRef}
+                value={formData.confirmPassword}
+                error={showError("confirmPassword")}
+                onChange={(e) => updateField("confirmPassword", e.target.value)}
+                onBlur={handleBlur("confirmPassword")}
+              />
+            </FormGrid>
+
+            {/* Outside the grid: the meter appears only once there is a
+                password to measure, and a conditional grid item would
+                leave its row gap behind when it is not there. */}
+            <PasswordMeter password={formData.password} />
+          </FormSection>
+
+          {notice && <AuthMessage tone={notice.tone}>{notice.text}</AuthMessage>}
+
+          <div className="sh-auth-actions">
+            <p style={loginTextStyle}>
+              Already have an account?{" "}
+              <Link to="/login" style={loginLinkStyle}>
+                Sign in
+              </Link>
+            </p>
+
+            <div className="sh-auth-actions-cta">
+              <SubmitButton
+                loading={isLoading || isDone}
+                loadingLabel={isDone ? "Account created" : "Creating account..."}
+                style={{ marginTop: 0 }}
+              >
+                Create account
+              </SubmitButton>
             </div>
           </div>
-
-          <div style={passwordFieldWrapStyle}>
-            <input
-              style={passwordInputStyle}
-              type={showPassword ? "text" : "password"}
-              placeholder="Password"
-              value={formData.password}
-              onChange={(e) => updateField("password", e.target.value)}
-            />
-            <button
-              type="button"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              title={showPassword ? "Hide password" : "Show password"}
-              style={passwordToggleStyle}
-              onClick={() => setShowPassword((current) => !current)}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                {showPassword ? (
-                  <>
-                    <path d="M2 2l20 20" />
-                    <path d="M10.6 10.6A2 2 0 0 0 13.4 13.4" />
-                    <path d="M9.9 4.2A10.5 10.5 0 0 1 12 4c5 0 9 4.5 10 8a13.6 13.6 0 0 1-3 4.7" />
-                    <path d="M6.6 6.6A13.3 13.3 0 0 0 2 12c1 3.5 5 8 10 8 1.6 0 3.1-.4 4.4-1.1" />
-                  </>
-                ) : (
-                  <>
-                    <path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8S2 12 2 12Z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </>
-                )}
-              </svg>
-            </button>
-          </div>
-
-          {showPasswordWarning && (
-            <p style={passwordWarningStyle}>
-              Password must include {formatPasswordIssues(passwordIssues)}.
-            </p>
-          )}
-
-          <button onClick={handleRegister} style={buttonStyle}>
-            Create Account
-          </button>
-
-          <div style={loginPromptStyle}>
-            <p style={loginTextStyle}>Already have an account?</p>
-            <Link to="/login" style={loginLinkStyle}>
-              <button type="button" style={loginButtonStyle}>
-                Login
-              </button>
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
+        </FormStack>
+      </form>
+    </AuthShell>
   );
 };
 
-const formatFullName = (value) => value.toUpperCase().replace(/[^A-Z\s]/g, "");
-
-const formatContactInput = (value) =>
-  value.replace(/^\s*\+?63\s*/, "").replace(/^\s*0+/, "");
-
-const formatContactForSubmit = (value) => {
-  const cleanContact = formatContactInput(value).trim();
-  return cleanContact ? `+63${cleanContact}` : "";
+const formatters = {
+  name: formatFullName,
+  courseYear: formatCourseYear,
+  contactNumber: formatContactInput,
+  schoolIdNumber: formatSchoolId,
 };
 
-const getPasswordIssues = (password) => {
-  const issues = [];
-
-  if (!/[A-Z]/.test(password)) {
-    issues.push("a capital letter");
-  }
-
-  if (!/\d/.test(password)) {
-    issues.push("a number");
-  }
-
-  if (!/[^A-Za-z0-9]/.test(password)) {
-    issues.push("a special character");
-  }
-
-  return issues;
-};
-
-const formatPasswordIssues = (issues) => {
-  if (issues.length <= 1) return issues[0] || "";
-  if (issues.length === 2) return `${issues[0]} and ${issues[1]}`;
-  return `${issues.slice(0, -1).join(", ")}, and ${issues[issues.length - 1]}`;
-};
-
-const registerCardStyle = {
-  ...authCardStyle,
-  width: "470px",
-  maxWidth: "100%",
-  padding: "clamp(22px, 6vw, 34px)",
-};
-
-const registerPageStyle = {
-  ...authWithLogoPageStyle,
-  justifyContent: "flex-start",
-  gap: "6px",
-  padding: "8px clamp(16px, 5vw, 32px) 24px",
-};
-
-const registerLogoStyle = {
-  ...authLogoStyle,
-  transform: "translateY(18px)",
-};
-
-const notificationStyle = {
-  position: "fixed",
-  top: "30px",
-  left: "50%",
-  transform: "translateX(-50%)",
-  background: colors.primary,
-  color: "white",
-  padding: "16px 28px",
-  borderRadius: "14px",
-  boxShadow: "0 8px 25px rgba(249,115,22,0.35)",
-  fontWeight: "600",
-  fontSize: "16px",
-  zIndex: 1000,
-};
-
-const brandStyle = {
-  color: colors.primary,
-  textAlign: "center",
-  margin: "0 0 8px",
-};
-
-const subtitleStyle = {
-  ...mutedTextStyle,
-  textAlign: "center",
-  marginBottom: "24px",
-};
-
-const formStackStyle = {
-  display: "grid",
-  gap: "15px",
-};
-
-const twoColumnFieldStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))",
-  gap: "15px",
-};
-
-const authInputStyle = {
-  ...inputStyle,
-  height: "48px",
-  background: "var(--sh-auth-field-bg)",
-};
-
-const contactFieldWrapStyle = {
-  display: "grid",
-  gridTemplateColumns: "auto minmax(0, 1fr)",
-  alignItems: "center",
-  width: "100%",
-  height: "48px",
-  borderRadius: "10px",
-  border: "1px solid #fdba74",
-  background: "var(--sh-auth-field-bg)",
-  overflow: "hidden",
-};
-
-const contactPrefixStyle = {
-  display: "grid",
-  placeItems: "center",
-  alignSelf: "stretch",
-  padding: "0 12px",
-  borderRight: "1px solid #fdba74",
+const dialCodeStyle = {
+  flex: "0 0 auto",
+  paddingRight: "9px",
+  marginLeft: "-2px",
+  borderRight: `1px solid ${colors.border}`,
   color: colors.primaryDark,
-  fontWeight: "800",
-  background: "rgba(255, 237, 213, 0.82)",
+  fontSize: "14px",
+  fontWeight: 800,
 };
 
 const contactInputStyle = {
-  ...authInputStyle,
+  flex: "1 1 auto",
+  minWidth: 0,
   height: "100%",
+  padding: 0,
   border: "none",
-  borderRadius: 0,
   background: "transparent",
-};
-
-const passwordFieldWrapStyle = {
-  position: "relative",
-};
-
-const passwordInputStyle = {
-  ...authInputStyle,
-  paddingRight: "48px",
-};
-
-const passwordToggleStyle = {
-  position: "absolute",
-  top: "50%",
-  right: "12px",
-  transform: "translateY(-50%)",
-  width: "34px",
-  height: "34px",
-  border: "none",
-  borderRadius: "8px",
-  background: "transparent",
-  color: colors.muted,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  cursor: "pointer",
-};
-
-const passwordWarningStyle = {
-  margin: "-6px 0 0",
-  padding: "10px 12px",
-  background: "#fff7ed",
-  color: colors.primaryDark,
-  border: `1px solid ${colors.border}`,
-  borderRadius: "10px",
-  fontSize: "13px",
-  fontWeight: "700",
-};
-
-const buttonStyle = {
-  ...buttonPrimaryStyle,
-  width: "100%",
-  height: "48px",
-  marginTop: "4px",
-};
-
-const loginPromptStyle = {
-  display: "grid",
-  gap: "10px",
-  marginTop: "4px",
+  color: colors.text,
+  fontSize: "14.5px",
 };
 
 const loginTextStyle = {
   ...mutedTextStyle,
-  textAlign: "center",
-  fontSize: "14px",
+  fontSize: "13.5px",
 };
 
 const loginLinkStyle = {
-  display: "block",
-  width: "100%",
-};
-
-const loginButtonStyle = {
-  ...buttonSecondaryStyle,
-  width: "100%",
-  height: "48px",
+  color: colors.primaryDark,
+  fontWeight: 800,
+  textDecoration: "underline",
+  textUnderlineOffset: "3px",
 };
 
 export default Register;

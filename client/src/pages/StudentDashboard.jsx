@@ -1,73 +1,66 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import api, { getStoredUser, getUploadUrl } from "../api";
+import api, { getStoredUser } from "../api";
 import { getSavedSettings, subscribeToSettings } from "../settings";
+import { Meter, MiniTrendChart } from "../components/charts";
+import {
+  STATUS_TONES,
+  formatNumber,
+  formatPercent,
+  formatPeso,
+  toneColor,
+} from "../components/vizTokens";
+import {
+  Callout,
+  HeroBanner,
+  IconRow,
+  InsightCard,
+  LoadingRows,
+  PanelGrid,
+  EstimateNote,
+  RequirementList,
+  SectionHeading,
+  StatusBadge,
+} from "../components/ui";
+import {
+  CalendarIcon,
+  CheckIcon,
+  ClockIcon,
+  DocumentIcon,
+  RenewIcon,
+  SearchIcon,
+  ShieldIcon,
+  TrendIcon,
+  WalletIcon,
+  WarningIcon,
+} from "../components/icons";
 import {
   buttonSecondaryStyle,
-  cardGridStyle,
   cardStyle,
   colors,
-  eyebrowStyle,
   mutedTextStyle,
-  pageHeaderStyle,
   pageStyle,
   shellStyle,
-  statusPillStyle,
-  titleStyle,
 } from "../sharedStyles";
 
-const AUTO_SYNC_MS = 5000;
+const ORDINALS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th"];
+
+const AUTO_SYNC_MS = 30000;
 const USER_CHANGED_EVENT = "scholarHubUserChanged";
-const WELCOME_CONFETTI_PARTICLES = [
-  ["#f97316", "-660px", "-190px", "680deg", "0px", "14px"],
-  ["#ffffff", "-610px", "-105px", "-520deg", "24px", "16px"],
-  ["#ef4444", "-565px", "-250px", "740deg", "-18px", "15px"],
-  ["#f97316", "-520px", "-55px", "-660deg", "30px", "13px"],
-  ["#ffffff", "-480px", "-175px", "560deg", "-26px", "17px"],
-  ["#ef4444", "-440px", "-285px", "-720deg", "18px", "14px"],
-  ["#f97316", "-400px", "-92px", "800deg", "-34px", "16px"],
-  ["#ffffff", "-360px", "-220px", "-610deg", "26px", "14px"],
-  ["#ef4444", "-325px", "-130px", "690deg", "-22px", "15px"],
-  ["#f97316", "-280px", "-310px", "-780deg", "32px", "17px"],
-  ["#ffffff", "-238px", "-165px", "540deg", "-28px", "14px"],
-  ["#ef4444", "-192px", "-265px", "-700deg", "16px", "16px"],
-  ["#f97316", "-150px", "-85px", "620deg", "-24px", "15px"],
-  ["#ffffff", "-112px", "-235px", "-560deg", "30px", "17px"],
-  ["#ef4444", "-72px", "-145px", "760deg", "-20px", "14px"],
-  ["#f97316", "-30px", "-300px", "-640deg", "26px", "16px"],
-  ["#ffffff", "24px", "-235px", "620deg", "-24px", "15px"],
-  ["#ef4444", "72px", "-115px", "-560deg", "30px", "17px"],
-  ["#f97316", "112px", "-275px", "760deg", "-20px", "14px"],
-  ["#ffffff", "152px", "-82px", "-640deg", "26px", "16px"],
-  ["#ef4444", "198px", "-195px", "720deg", "-30px", "13px"],
-  ["#f97316", "245px", "-132px", "-600deg", "22px", "17px"],
-  ["#ffffff", "285px", "-270px", "690deg", "-16px", "14px"],
-  ["#ef4444", "330px", "-98px", "-740deg", "32px", "16px"],
-  ["#f97316", "370px", "-205px", "560deg", "-24px", "15px"],
-  ["#ffffff", "415px", "-142px", "-680deg", "26px", "17px"],
-  ["#ef4444", "455px", "-292px", "780deg", "-32px", "14px"],
-  ["#f97316", "500px", "-170px", "-540deg", "18px", "16px"],
-  ["#ffffff", "545px", "-55px", "720deg", "-24px", "15px"],
-  ["#ef4444", "590px", "-225px", "-680deg", "34px", "17px"],
-  ["#f97316", "635px", "-125px", "640deg", "-18px", "14px"],
-  ["#ffffff", "680px", "-260px", "-760deg", "26px", "16px"],
-  ["#ef4444", "-630px", "-330px", "820deg", "40px", "13px"],
-  ["#f97316", "-545px", "-360px", "-720deg", "-36px", "15px"],
-  ["#ffffff", "-455px", "-340px", "670deg", "28px", "14px"],
-  ["#ef4444", "-365px", "-375px", "-810deg", "-30px", "16px"],
-  ["#f97316", "-275px", "-350px", "730deg", "34px", "13px"],
-  ["#ffffff", "-185px", "-390px", "-690deg", "-26px", "15px"],
-  ["#ef4444", "-95px", "-345px", "780deg", "24px", "14px"],
-  ["#f97316", "5px", "-382px", "-740deg", "-34px", "16px"],
-  ["#ffffff", "95px", "-340px", "690deg", "30px", "13px"],
-  ["#ef4444", "185px", "-385px", "-800deg", "-24px", "15px"],
-  ["#f97316", "275px", "-350px", "720deg", "36px", "14px"],
-  ["#ffffff", "365px", "-370px", "-680deg", "-28px", "16px"],
-  ["#ef4444", "455px", "-335px", "760deg", "32px", "13px"],
-  ["#f97316", "545px", "-365px", "-790deg", "-38px", "15px"],
-  ["#ffffff", "635px", "-325px", "700deg", "26px", "14px"],
-  ["#ef4444", "700px", "-355px", "-720deg", "-30px", "16px"],
-];
+
+const STATUS_TONE_NAMES = {
+  Approved: "good",
+  "Pending Review": "warning",
+  Rejected: "critical",
+};
+
+const TREND_COPY = {
+  improving: { label: "Improving", tone: "good", icon: "▲" },
+  declining: { label: "Declining", tone: "critical", icon: "▼" },
+  stable: { label: "Stable", tone: "neutral", icon: "▬" },
+  new: { label: "First term", tone: "neutral", icon: "◆" },
+  unknown: { label: "Not recorded", tone: "neutral", icon: "–" },
+};
 
 const getCurrentUser = () => {
   try {
@@ -77,155 +70,129 @@ const getCurrentUser = () => {
   }
 };
 
-const formatDate = (date) => {
-  if (!date) return "Just now";
-  return new Date(date).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
+const formatDate = (value) =>
+  value
+    ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "—";
+
+const formatDisbursementWindow = (disbursement) => {
+  if (!disbursement?.date) return "Not scheduled yet";
+  const date = new Date(disbursement.date).toLocaleDateString("en-US", {
+    month: "long",
     day: "numeric",
   });
+  if (!disbursement.isEstimate) return `Released ${date}`;
+  return `${date} ± ${disbursement.marginDays}d`;
 };
 
+const formatAwardRange = (award) => {
+  if (award?.min == null) return "Not published";
+  if (award.min === award.max) return formatPeso(award.min);
+  return `${formatPeso(award.min)} – ${formatPeso(award.max)}`;
+};
+
+// The student dashboard is a summary, not a second analytics page: one
+// small chart, everything else a number with a sentence next to it.
+// Anything that needs a chart to be understood lives on /analytics and
+// is linked from here.
 const StudentDashboard = () => {
   const [user, setUser] = useState(getCurrentUser);
   const [scholarships, setScholarships] = useState([]);
   const [applications, setApplications] = useState([]);
+  const [insight, setInsight] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [settings, setSettings] = useState(getSavedSettings);
-  const [showWelcomeConfetti, setShowWelcomeConfetti] = useState(true);
+  const [scholarshipQuery, setScholarshipQuery] = useState("");
   const syncingRef = useRef(false);
-  const userEmail = user?.email;
 
-  const loadDashboard = useCallback(
-    async ({ initial = false, silent = false } = {}) => {
-      if (syncingRef.current) {
-        return;
+  const loadDashboard = useCallback(async ({ initial = false, silent = false } = {}) => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+
+    if (initial) setLoading(true);
+    setRefreshing(true);
+
+    try {
+      const [scholarshipsResult, applicationsResult, analyticsResult] = await Promise.allSettled([
+        api.get("/scholarships"),
+        api.get("/applications/student"),
+        api.get("/student/analytics"),
+      ]);
+
+      if (scholarshipsResult.status === "fulfilled") {
+        setScholarships(
+          Array.isArray(scholarshipsResult.value.data) ? scholarshipsResult.value.data : []
+        );
       }
 
-      syncingRef.current = true;
-
-      if (initial) {
-        setLoading(true);
+      if (applicationsResult.status === "fulfilled") {
+        setApplications(
+          Array.isArray(applicationsResult.value.data) ? applicationsResult.value.data : []
+        );
       }
-      setRefreshing(true);
 
-      try {
-        const requests = [api.get("/scholarships")];
-
-        if (userEmail) {
-          requests.push(
-            api.get("/applications/student")
-          );
-        }
-
-        const [scholarshipsResult, applicationsResult] = await Promise.allSettled(requests);
-
-        const scholarshipsSynced = scholarshipsResult.status === "fulfilled";
-        const applicationsSynced = !userEmail || applicationsResult?.status === "fulfilled";
-
-        if (scholarshipsSynced) {
-          setScholarships(
-            Array.isArray(scholarshipsResult.value.data) ? scholarshipsResult.value.data : []
-          );
-        }
-
-        if (userEmail && applicationsSynced) {
-          setApplications(
-            Array.isArray(applicationsResult.value.data) ? applicationsResult.value.data : []
-          );
-        }
-
-        if (!scholarshipsSynced && !applicationsSynced) {
-          throw scholarshipsResult.reason || applicationsResult?.reason;
-        }
-
-        if (scholarshipsSynced && applicationsSynced) {
-          setNotice(null);
-        } else if (!silent) {
-          setNotice("Some live student data could not sync, but available dashboard data is shown.");
-        }
-        setLastUpdated(new Date());
-      } catch (error) {
-        console.log("Student dashboard sync error:", error);
-        if (!silent) {
-          setNotice("Unable to sync live student data right now.");
-        }
-      } finally {
-        syncingRef.current = false;
-        setLoading(false);
-        setRefreshing(false);
+      if (analyticsResult.status === "fulfilled") {
+        setInsight(analyticsResult.value.data);
       }
-    },
-    [userEmail]
-  );
+
+      const allFailed = [scholarshipsResult, applicationsResult, analyticsResult].every(
+        (result) => result.status === "rejected"
+      );
+
+      if (allFailed) {
+        throw scholarshipsResult.reason;
+      }
+
+      const someFailed = [scholarshipsResult, applicationsResult, analyticsResult].some(
+        (result) => result.status === "rejected"
+      );
+      setNotice(
+        someFailed && !silent
+          ? "Some of your dashboard could not sync. Everything else below is current."
+          : null
+      );
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.log("Student dashboard sync error:", error);
+      if (!silent) setNotice("Unable to sync your dashboard right now.");
+    } finally {
+      syncingRef.current = false;
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => subscribeToSettings(setSettings), []);
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setShowWelcomeConfetti(false);
-    }, 10000);
-
-    return () => window.clearTimeout(timeoutId);
-  }, []);
+    Promise.resolve().then(() => loadDashboard({ initial: true }));
+  }, [loadDashboard]);
 
   useEffect(() => {
-    let isActive = true;
+    if (!settings.autoRefresh) return undefined;
 
-    const sync = async () => {
-      if (!isActive) return;
-      await loadDashboard({ initial: true });
-    };
-
-    sync();
-
-    const intervalId = settings.autoRefresh
-      ? window.setInterval(() => {
-          loadDashboard({ silent: true });
-        }, AUTO_SYNC_MS)
-      : null;
-
+    const intervalId = window.setInterval(() => loadDashboard({ silent: true }), AUTO_SYNC_MS);
     const handleFocus = () => {
-      if (settings.autoRefresh && document.visibilityState === "visible") {
-        loadDashboard({ silent: true });
-      }
+      if (document.visibilityState === "visible") loadDashboard({ silent: true });
     };
 
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleFocus);
 
     return () => {
-      isActive = false;
-      if (intervalId) {
-        window.clearInterval(intervalId);
-      }
+      window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleFocus);
     };
   }, [loadDashboard, settings.autoRefresh]);
 
-  const openScholarships = useMemo(
-    () => scholarships.filter((scholarship) => scholarship.status !== "Closed"),
-    [scholarships]
-  );
-
-  const pendingApplications = useMemo(
-    () => applications.filter((application) => application.status === "Pending Review"),
-    [applications]
-  );
-
-  const latestScholarships = scholarships.slice(0, 3);
-  const avatarSrc = getUploadUrl(user?.avatarPath || user?.avatar_path);
-
   useEffect(() => {
     const syncUserFromStorage = () => setUser(getCurrentUser());
     const handleStorageChange = (event) => {
-      if (event.key === "currentUser") {
-        syncUserFromStorage();
-      }
+      if (event.key === "currentUser") syncUserFromStorage();
     };
 
     window.addEventListener(USER_CHANGED_EVENT, syncUserFromStorage);
@@ -237,368 +204,668 @@ const StudentDashboard = () => {
     };
   }, []);
 
-  const statCards = [
-    {
-      label: "Available Scholarships",
-      value: openScholarships.length,
-      copy: "Live scholarship posts from the admin office.",
-      to: "/scholarships",
-      action: "View all",
-    },
-    {
-      label: "Pending Applications",
-      value: pendingApplications.length,
-      copy: "Applications still waiting for admin review.",
-      to: "/track-status",
-      action: "Track status",
-    },
-  ];
+  const openScholarships = useMemo(
+    () => scholarships.filter((scholarship) => scholarship.status !== "Closed"),
+    [scholarships]
+  );
+
+  // Title and description both, because students search for the thing the
+  // grant is for ("tuition", "board exam") far more often than for its
+  // official title.
+  const matchedScholarships = useMemo(() => {
+    const query = scholarshipQuery.trim().toLowerCase();
+    if (!query) return openScholarships;
+    return openScholarships.filter((scholarship) =>
+      `${scholarship.title} ${scholarship.description || ""}`.toLowerCase().includes(query)
+    );
+  }, [openScholarships, scholarshipQuery]);
+
+  const searching = scholarshipQuery.trim().length > 0;
+
+  // Unsearched, this is a preview panel and three cards is the whole
+  // point of it. A search is a question, so it gets every answer rather
+  // than the first three.
+  const visibleScholarships = searching ? matchedScholarships : matchedScholarships.slice(0, 3);
+
+  const current = insight?.current;
+  const gpa = insight?.gpa;
+  const documents = insight?.documents;
+  const eligibility = insight?.eligibility;
+  const renewal = insight?.renewal;
+  const scale = gpa?.scale || { max: 4, retentionMinimum: 2 };
+  const trend = TREND_COPY[gpa?.direction || "unknown"];
+  const warnings = insight?.warnings || [];
+  const actions = insight?.actions || [];
+  const missingDocuments = (documents?.items || []).filter((item) => !item.submitted);
+
+  const documentTone =
+    (documents?.percent ?? 0) >= 100 ? "good" : (documents?.percent ?? 0) >= 60 ? "warning" : "critical";
+  const gpaTone =
+    gpa?.latest == null
+      ? "accent"
+      : gpa.latest >= scale.retentionMinimum + 0.25
+        ? "good"
+        : gpa.latest >= scale.retentionMinimum
+          ? "warning"
+          : "critical";
+  const eligibilityTone =
+    (eligibility?.score ?? 0) >= 75 ? "good" : (eligibility?.score ?? 0) >= 50 ? "warning" : "critical";
+  const renewalTone =
+    (renewal?.probability ?? 0) >= 75 ? "good" : (renewal?.probability ?? 0) >= 50 ? "warning" : "critical";
 
   return (
     <div style={pageStyle}>
-      <main style={mainStyle}>
-        <header style={pageHeaderStyle}>
-          <div style={headerTopStyle}>
-            <div>
-              <span style={eyebrowStyle}>Student Workspace</span>
-              <h1 style={titleStyle}>Student Dashboard</h1>
-              <p style={mutedTextStyle}>
-                Live scholarship posts, announcements, and application updates from the admin.
-              </p>
-            </div>
-            <div style={headerActionsStyle}>
-              <span style={liveBadgeStyle}>
-                {refreshing ? "Syncing..." : settings.autoRefresh ? "Live" : "Manual"}
+      <main style={shellStyle}>
+        <HeroBanner
+          eyebrow="Student workspace"
+          title={`Welcome back, ${user?.name?.split(" ")[0] || "Scholar"}`}
+          subtitle={
+            current
+              ? `Your ${current.scholarshipTitle} application is ${current.status.toLowerCase()}.`
+              : "You have not applied for a scholarship yet. Open scholarships are listed below."
+          }
+          aside={
+            current ? (
+              <div style={statusCardStyle}>
+                <span style={heroLabelStyle}>Scholarship status</span>
+                <div style={{ marginTop: "8px" }}>
+                  <StatusBadge
+                    tone={STATUS_TONE_NAMES[current.status] || "neutral"}
+                    icon={
+                      current.status === "Approved" ? (
+                        <CheckIcon size={13} />
+                      ) : current.status === "Rejected" ? (
+                        <WarningIcon size={13} />
+                      ) : (
+                        <ClockIcon size={13} />
+                      )
+                    }
+                  >
+                    {current.status}
+                  </StatusBadge>
+                </div>
+                <span style={statusMetaStyle}>
+                  {current.semester || current.academicYear
+                    ? `${current.semester} ${current.academicYear}`.trim()
+                    : "Term not recorded"}{" "}
+                  · {current.applicationType}
+                </span>
+              </div>
+            ) : null
+          }
+          actions={
+            <>
+              <span style={mastheadMetaStyle}>
+                {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Syncing…"}
               </span>
-              <button type="button" style={buttonSecondaryStyle} onClick={() => loadDashboard()} disabled={refreshing}>
-                Refresh Now
-              </button>
-            </div>
-          </div>
-          <p style={updatedTextStyle}>
-            {lastUpdated ? `Last synced ${lastUpdated.toLocaleTimeString()}` : "Waiting for first sync..."}
-          </p>
-        </header>
+              <div style={{ marginLeft: "auto", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <Link to="/analytics" style={{ textDecoration: "none" }}>
+                  <button type="button" style={buttonSecondaryStyle}>
+                    Full analytics
+                  </button>
+                </Link>
+                <button
+                  type="button"
+                  style={buttonSecondaryStyle}
+                  onClick={() => loadDashboard()}
+                  disabled={refreshing}
+                >
+                  {refreshing ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+            </>
+          }
+        />
 
         {notice && <div style={noticeStyle}>{notice}</div>}
 
-        <section style={welcomeCardStyle(settings.compactMode)}>
-          {showWelcomeConfetti && (
-            <div style={welcomeConfettiLayerStyle} aria-hidden="true">
-              {WELCOME_CONFETTI_PARTICLES.map(([color, x, y, rotate, drift, size], index) => (
-                <span
-                  key={`${color}-${index}`}
-                  className="scholar-welcome-confetti"
-                  style={confettiPieceStyle(color, x, y, rotate, drift, size)}
-                />
-              ))}
-            </div>
-          )}
-
-          <div style={welcomeContentStyle}>
-            <p style={welcomeLabel}>Welcome back</p>
-            <h2 style={welcomeName}>{user?.name || "Student"}</h2>
-            <p style={welcomeText}>
-              Keep your applications moving and watch the live updates from the admin side.
-            </p>
-          </div>
-          <div style={avatarLargeStyle}>
-            {avatarSrc ? (
-              <img src={avatarSrc} alt="" style={avatarImageStyle} />
-            ) : (
-              (user?.name || user?.role || "S").charAt(0)
-            )}
-          </div>
-        </section>
-
-        <section style={cardGridStyle}>
-          {statCards.map((card) => (
-            <article key={card.label} style={statCardStyle(settings.compactMode)}>
-              <div style={cardHeaderStyle}>
-                <span style={cardLabelStyle}>{card.label}</span>
-                <Link to={card.to} style={cardLinkStyle}>
-                  {card.action}
+        {/* The most urgent thing on the page goes first, before any
+            number the student has to interpret for themselves. */}
+        {warnings.length > 0 && (
+          <div style={{ display: "grid", gap: "12px", marginBottom: "18px" }}>
+            <Callout
+              tone={warnings[0].tone}
+              title={warnings[0].title}
+              icon={warnings[0].tone === "critical" ? "!" : "▲"}
+              actions={
+                <Link to="/outlook#next-steps" style={{ textDecoration: "none" }}>
+                  <button type="button" style={buttonSecondaryStyle}>
+                    See what to do
+                  </button>
                 </Link>
-              </div>
-              <h2 style={statValueStyle}>{loading ? "..." : card.value}</h2>
-              <p style={mutedTextStyle}>{card.copy}</p>
-            </article>
-          ))}
-        </section>
+              }
+            >
+              <p style={{ margin: 0 }}>{warnings[0].message}</p>
+              {warnings[0].action && <p style={warningActionStyle}>{warnings[0].action}</p>}
+            </Callout>
+          </div>
+        )}
 
-        <section style={feedGridStyle}>
-          <article style={feedCardStyle(settings.compactMode)}>
-            <div style={panelHeaderStyle}>
-              <h3 style={panelTitleStyle}>Latest Scholarships</h3>
-              <Link to="/scholarships" style={panelLinkStyle}>
-                View all
-              </Link>
-            </div>
+        {loading ? (
+          <LoadingRows rows={2} height={104} />
+        ) : (
+          <PanelGrid min={236} gap={14}>
+            <InsightCard
+              title="Eligibility score"
+              icon={ShieldIcon}
+              tone={eligibilityTone}
+              value={eligibility ? formatPercent(eligibility.score) : "—"}
+              valueLabel={eligibility ? `Rated “${eligibility.band}”` : "Apply to get a score"}
+              emphasis
+              compact
+            />
+            <InsightCard
+              title="Current GPA"
+              icon={TrendIcon}
+              tone={gpaTone}
+              value={gpa?.latest != null ? gpa.latest.toFixed(2) : "—"}
+              valueLabel={
+                gpa?.latest != null
+                  ? `${scale.retentionMinimum.toFixed(2)} needed to stay eligible`
+                  : "No grade recorded yet"
+              }
+              caption={
+                gpa?.change != null
+                  ? `${trend.icon} ${gpa.change > 0 ? "+" : ""}${gpa.change.toFixed(2)} from last term`
+                  : null
+              }
+              compact
+            />
+            <InsightCard
+              title="Documents complete"
+              icon={DocumentIcon}
+              tone={documentTone}
+              value={formatPercent(documents?.percent ?? 0)}
+              valueLabel={
+                documents?.requiredCount
+                  ? `${documents.submittedCount} of ${documents.requiredCount} submitted`
+                  : "No requirement list published"
+              }
+              compact
+            />
+            <InsightCard
+              title="Renewal outlook"
+              icon={RenewIcon}
+              tone={renewalTone}
+              value={renewal ? formatPercent(renewal.probability) : "—"}
+              valueLabel={
+                renewal ? `Estimate · ${renewal.confidence} confidence` : "Apply to get an estimate"
+              }
+              compact
+            />
+          </PanelGrid>
+        )}
 
-            {loading ? (
-              <p style={mutedTextStyle}>Loading scholarships...</p>
-            ) : latestScholarships.length === 0 ? (
-              <p style={mutedTextStyle}>No scholarships posted yet.</p>
-            ) : (
-              latestScholarships.map((scholarship) => (
-                <div key={scholarship.id} style={feedItemStyle}>
-                  <strong>{scholarship.title}</strong>
-                  <p style={mutedTextStyle}>{scholarship.description}</p>
-                  <div style={feedFooterStyle}>
-                    {settings.showStatusBadges && (
-                      <span style={statusPillStyle}>{scholarship.status}</span>
-                    )}
-                    <span style={metaStyle}>{formatDate(scholarship.created_at)}</span>
-                  </div>
+        {insight?.hasApplication && (
+          <>
+            <SectionHeading
+              eyebrow="Your award"
+              title="What you can expect"
+              description="Both figures are estimates from your record, not a confirmed payment."
+            />
+
+            <PanelGrid min={280} gap={16}>
+              <InsightCard
+                title="Estimated award"
+                icon={WalletIcon}
+                tone="accent"
+                valueLabel="Per semester"
+                value={formatAwardRange(insight.award)}
+                caption={insight.award?.basis}
+              />
+
+              <InsightCard
+                title="Expected disbursement"
+                icon={CalendarIcon}
+                tone="accent"
+                valueLabel={
+                  insight.disbursement?.isEstimate ? "Estimated window" : "Confirmed"
+                }
+                value={formatDisbursementWindow(insight.disbursement)}
+                caption={insight.disbursement?.basis}
+                footer={
+                  <IconRow
+                    icon={ClockIcon}
+                    label="Application approved"
+                    tone={current?.status === "Approved" ? "good" : "neutral"}
+                    value={
+                      current?.status === "Approved"
+                        ? formatDate(current.statusUpdatedAt)
+                        : "Not yet"
+                    }
+                  />
+                }
+              />
+
+            </PanelGrid>
+
+            <SectionHeading
+              eyebrow="Requirements"
+              title="What is still outstanding"
+              description="Missing documents are the most common reason an application stalls."
+              actions={
+                <Link to="/application-form" style={{ textDecoration: "none" }}>
+                  <button type="button" style={buttonSecondaryStyle}>
+                    Upload documents
+                  </button>
+                </Link>
+              }
+            />
+
+            <PanelGrid min={320} gap={18}>
+              <section style={panelStyle} className="sh-print-block">
+                <Meter
+                  value={documents?.percent ?? 0}
+                  tone={documentTone}
+                  label="Document completion"
+                  caption={
+                    missingDocuments.length === 0
+                      ? "Your folder is complete. Nothing outstanding."
+                      : `${missingDocuments.length} document${
+                          missingDocuments.length === 1 ? "" : "s"
+                        } still needed.`
+                  }
+                />
+                <div style={{ marginTop: "18px" }}>
+                  <RequirementList
+                    items={documents?.items}
+                    emptyMessage="This scholarship has no published requirement list, so completion is measured on the files you uploaded."
+                  />
                 </div>
-              ))
-            )}
-          </article>
+              </section>
 
-          <article style={applicationsCardStyle(settings.compactMode)}>
-            <div style={panelHeaderStyle}>
-              <h3 style={panelTitleStyle}>My Applications</h3>
-              <Link to="/track-status" style={panelLinkStyle}>
-                View all
-              </Link>
-            </div>
+              <section style={panelStyle} className="sh-print-block">
+                <h3 style={panelTitleStyle}>GPA against the minimum</h3>
+                <p style={panelCopyStyle}>
+                  You have to stay above {scale.retentionMinimum.toFixed(2)} to keep your
+                  scholarship. The red rule is that line.
+                </p>
+                <MiniTrendChart
+                  height={150}
+                  points={(gpa?.series || []).map((point, index) => ({
+                    label: point.label,
+                    shortLabel: ORDINALS[index] || `${index + 1}`,
+                    value: point.gpa,
+                  }))}
+                  domain={[0, scale.max]}
+                  color={toneColor(gpaTone)}
+                  valueFormat={(value) => Number(value).toFixed(2)}
+                  referenceLine={{ value: scale.retentionMinimum }}
+                  emptyMessage="No grades have been recorded on your applications yet."
+                />
+              </section>
+            </PanelGrid>
 
-            {loading ? (
-              <p style={mutedTextStyle}>Loading applications...</p>
-            ) : applications.length === 0 ? (
-              <p style={mutedTextStyle}>You have not submitted an application yet.</p>
-            ) : (
-              applications.slice(0, 3).map((application) => (
-                <div key={application.id} style={applicationItemStyle}>
-                  <strong>{application.scholarship_title}</strong>
-                  <p style={applicationStatusStyle}>{application.status}</p>
-                  <p style={applicationRemarkStyle}>
-                    {application.remarks || "Waiting for admin review."}
-                  </p>
+            {actions.length > 0 && (
+              <>
+                <SectionHeading
+                  eyebrow="Next steps"
+                  title="Recommended actions"
+                  description="Ordered by what would move your standing the most."
+                />
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {actions.map((action, index) => (
+                    <Link key={action.id} to={action.to} style={actionCardStyle}>
+                      <span style={actionIndexStyle}>{index + 1}</span>
+                      <span style={{ minWidth: 0 }}>
+                        <strong style={actionLabelStyle}>{action.label}</strong>
+                        {action.detail && <span style={actionDetailStyle}>{action.detail}</span>}
+                      </span>
+                      <span aria-hidden="true" style={actionArrowStyle}>
+                        →
+                      </span>
+                    </Link>
+                  ))}
                 </div>
-              ))
+              </>
             )}
-          </article>
-        </section>
+
+            <EstimateNote>
+              The eligibility score and renewal outlook are estimates calculated from the grades,
+              documents and decisions recorded by the scholarship office. They are not a decision —
+              only the scholarship committee can approve or renew an award.{" "}
+              <Link to="/outlook" style={inlineLinkStyle}>
+                See how they are calculated
+              </Link>
+              .
+            </EstimateNote>
+          </>
+        )}
+
+        <SectionHeading
+          eyebrow="Opportunities"
+          title="Open scholarships"
+          description={
+            searching
+              ? `${formatNumber(matchedScholarships.length)} of ${formatNumber(
+                  openScholarships.length
+                )} scholarship${openScholarships.length === 1 ? "" : "s"} match “${scholarshipQuery.trim()}”.`
+              : `${formatNumber(openScholarships.length)} scholarship${
+                  openScholarships.length === 1 ? "" : "s"
+                } currently accepting applications.`
+          }
+          actions={
+            <>
+              {/* The label wraps the input, so clicking the magnifier
+                  focuses the field rather than being a dead decoration. */}
+              <label style={searchFieldStyle} className="sh-search-field sh-no-print">
+                <span aria-hidden="true" style={searchIconStyle}>
+                  <SearchIcon size={16} />
+                </span>
+                <input
+                  type="search"
+                  value={scholarshipQuery}
+                  onChange={(event) => setScholarshipQuery(event.target.value)}
+                  placeholder="Search scholarships"
+                  aria-label="Search open scholarships"
+                  style={searchInputStyle}
+                />
+              </label>
+              <Link to="/scholarships" style={{ textDecoration: "none" }}>
+                <button type="button" style={buttonSecondaryStyle}>
+                  View all
+                </button>
+              </Link>
+            </>
+          }
+        />
+
+        <PanelGrid min={280} gap={16}>
+          {loading ? (
+            <LoadingRows rows={2} height={110} />
+          ) : visibleScholarships.length === 0 ? (
+            <p style={{ ...mutedTextStyle, fontSize: "13.5px" }}>
+              {searching
+                ? `No open scholarship matches “${scholarshipQuery.trim()}”. Try a shorter word, or view all scholarships.`
+                : "No scholarships are open right now. New posts appear here as soon as the office publishes them."}
+            </p>
+          ) : (
+            visibleScholarships.map((scholarship) => (
+              <article key={scholarship.id} style={scholarshipCardStyle} className="sh-print-block">
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
+                  <strong style={scholarshipTitleStyle}>{scholarship.title}</strong>
+                  {settings.showStatusBadges && (
+                    <StatusBadge tone={scholarship.status === "Open" ? "good" : "neutral"}>
+                      {scholarship.status}
+                    </StatusBadge>
+                  )}
+                </div>
+                <p style={scholarshipCopyStyle}>{scholarship.description}</p>
+                <span style={scholarshipMetaStyle}>
+                  {scholarship.available_slots} slot
+                  {Number(scholarship.available_slots) === 1 ? "" : "s"} · closes{" "}
+                  {formatDate(scholarship.deadline)}
+                </span>
+              </article>
+            ))
+          )}
+        </PanelGrid>
+
+        {applications.length > 0 && (
+          <>
+            <SectionHeading
+              eyebrow="History"
+              title="My applications"
+              actions={
+                <Link to="/track-status" style={{ textDecoration: "none" }}>
+                  <button type="button" style={buttonSecondaryStyle}>
+                    Track status
+                  </button>
+                </Link>
+              }
+            />
+            <ul style={applicationListStyle}>
+              {applications.slice(0, 4).map((application) => (
+                <li key={application.id} style={applicationItemStyle}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      ...statusDotStyle,
+                      background: STATUS_TONES[application.status] || colors.muted,
+                    }}
+                  />
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <strong style={applicationTitleStyle}>{application.scholarship_title}</strong>
+                    <span style={applicationMetaStyle}>
+                      Submitted {formatDate(application.created_at)}
+                      {application.remarks ? ` · ${application.remarks}` : ""}
+                    </span>
+                  </span>
+                  <StatusBadge tone={STATUS_TONE_NAMES[application.status] || "neutral"}>
+                    {application.status}
+                  </StatusBadge>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </main>
     </div>
   );
 };
 
-const mainStyle = {
-  ...shellStyle,
+
+
+
+
+
+
+
+
+const statusCardStyle = {
+  background: colors.surface,
+  border: `1px solid ${colors.border}`,
+  borderRadius: "14px",
+  padding: "14px 18px",
+  minWidth: "200px",
+  display: "grid",
+  alignContent: "start",
 };
 
-const headerTopStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: "20px",
-  flexWrap: "wrap",
+const heroLabelStyle = {
+  color: colors.muted,
+  fontSize: "12px",
+  fontWeight: 700,
+  letterSpacing: "0.03em",
 };
 
-const headerActionsStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-  flexWrap: "wrap",
+const statusMetaStyle = {
+  fontSize: "12px",
+  color: colors.muted,
+  marginTop: "10px",
 };
 
-const liveBadgeStyle = {
-  ...eyebrowStyle,
-  marginBottom: 0,
-};
 
-const updatedTextStyle = {
-  ...mutedTextStyle,
-  marginTop: "12px",
-  fontSize: "13px",
+const mastheadMetaStyle = {
+  fontSize: "12.5px",
+  color: colors.muted,
 };
 
 const noticeStyle = {
+  background: "var(--viz-warning-wash)",
+  border: "1px solid var(--viz-warning)",
+  color: "var(--viz-warning-ink)",
+  borderRadius: "12px",
+  padding: "12px 16px",
+  marginBottom: "16px",
+  fontSize: "13.5px",
+};
+
+const warningActionStyle = {
+  margin: "6px 0 0",
+  fontSize: "12.5px",
+  color: colors.muted,
+};
+
+
+
+
+
+const panelStyle = {
   ...cardStyle,
-  marginBottom: "18px",
-  color: "#991b1b",
-  borderColor: "#fecaca",
-  background: "#fee2e2",
-};
-
-const welcomeCardStyle = (compact) => ({
-  ...pageHeaderStyle,
-  position: "relative",
-  overflow: "hidden",
-  padding: compact ? "20px" : pageHeaderStyle.padding,
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "24px",
-});
-
-const welcomeContentStyle = {
-  position: "relative",
-  zIndex: 2,
-};
-
-const welcomeConfettiLayerStyle = {
-  position: "absolute",
-  inset: 0,
-  pointerEvents: "none",
-  overflow: "hidden",
-  zIndex: 1,
-};
-
-const confettiPieceStyle = (color, x, y, rotate, drift, size) => ({
-  "--confetti-color": color,
-  "--confetti-x": x,
-  "--confetti-y": y,
-  "--confetti-rotate": rotate,
-  "--confetti-drift": drift,
-  "--confetti-size": size,
-});
-
-const welcomeLabel = {
-  color: colors.primary,
-  fontWeight: "700",
-  marginBottom: "8px",
-};
-
-const welcomeName = {
-  fontSize: "28px",
-  margin: "0 0 8px",
-  color: colors.text,
-};
-
-const welcomeText = {
-  ...mutedTextStyle,
-};
-
-const avatarLargeStyle = {
-  position: "relative",
-  zIndex: 2,
-  width: "82px",
-  height: "82px",
-  borderRadius: "50%",
-  background: colors.primary,
-  color: "white",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontWeight: "800",
-  fontSize: "26px",
-  flex: "0 0 auto",
-  overflow: "hidden",
-};
-
-const avatarImageStyle = {
-  width: "100%",
-  height: "100%",
-  objectFit: "cover",
-  display: "block",
-};
-
-const panelHeaderStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "12px",
+  borderRadius: "16px",
+  boxShadow: "var(--sh-shadow-md)",
 };
 
 const panelTitleStyle = {
-  margin: 0,
-};
-
-const panelLinkStyle = {
-  color: colors.primary,
-  fontWeight: "700",
-  textDecoration: "none",
-};
-
-const metaStyle = {
-  margin: 0,
-  fontSize: "13px",
-  color: colors.muted,
-};
-
-const statCardStyle = (compact) => ({
-  ...cardStyle,
-  padding: compact ? "16px" : cardStyle.padding,
-  display: "grid",
-  gap: "8px",
-});
-
-const cardHeaderStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "12px",
-};
-
-const cardLabelStyle = {
-  color: colors.muted,
-  fontWeight: "700",
-};
-
-const cardLinkStyle = {
-  color: colors.primary,
-  fontWeight: "700",
-  textDecoration: "none",
-  fontSize: "13px",
-};
-
-const statValueStyle = {
-  margin: 0,
-  fontSize: "clamp(28px, 8vw, 34px)",
+  margin: "0 0 6px",
+  fontSize: "15px",
   color: colors.text,
 };
 
-const feedGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))",
-  gap: "22px",
-  marginTop: "22px",
+const panelCopyStyle = {
+  ...mutedTextStyle,
+  margin: "0 0 14px",
+  fontSize: "12.5px",
 };
 
-const feedCardStyle = (compact) => ({
-  ...cardStyle,
-  padding: compact ? "16px" : cardStyle.padding,
-  display: "grid",
+const actionCardStyle = {
+  display: "flex",
+  alignItems: "center",
   gap: "14px",
-});
+  background: colors.surface,
+  border: `1px solid ${colors.border}`,
+  borderRadius: "13px",
+  padding: "14px 16px",
+  textDecoration: "none",
+  color: colors.text,
+};
 
-const applicationsCardStyle = (compact) => ({
-  ...feedCardStyle(compact),
-  alignContent: "start",
-});
+const actionIndexStyle = {
+  width: "26px",
+  height: "26px",
+  borderRadius: "8px",
+  background: colors.primarySoft,
+  color: colors.primaryDark,
+  display: "grid",
+  placeItems: "center",
+  fontSize: "13px",
+  fontWeight: 800,
+  flex: "0 0 auto",
+};
 
-const feedItemStyle = {
-  borderTop: `1px solid ${colors.border}`,
-  paddingTop: "14px",
+const actionLabelStyle = {
+  display: "block",
+  fontSize: "14px",
+  lineHeight: 1.4,
+};
+
+const actionDetailStyle = {
+  display: "block",
+  fontSize: "12.5px",
+  color: colors.muted,
+  marginTop: "2px",
+};
+
+const actionArrowStyle = {
+  marginLeft: "auto",
+  color: colors.primary,
+  fontWeight: 800,
+};
+
+const searchFieldStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  padding: "0 12px",
+  height: "38px",
+  minWidth: "min(100%, 220px)",
+  background: colors.surface,
+  border: `1px solid ${colors.border}`,
+  borderRadius: "999px",
+  boxShadow: "var(--sh-shadow-sm)",
+  cursor: "text",
+};
+
+const searchIconStyle = {
+  display: "flex",
+  color: colors.primary,
+  flex: "0 0 auto",
+};
+
+const searchInputStyle = {
+  border: "none",
+  outline: "none",
+  background: "transparent",
+  color: colors.text,
+  fontSize: "13.5px",
+  width: "100%",
+  minWidth: 0,
+  padding: 0,
+};
+
+const scholarshipCardStyle = {
+  ...cardStyle,
+  borderRadius: "14px",
+  padding: "18px 20px",
   display: "grid",
   gap: "8px",
+  alignContent: "start",
+  boxShadow: "var(--sh-shadow-sm)",
+};
+
+const scholarshipTitleStyle = {
+  fontSize: "14.5px",
+  color: colors.text,
+  lineHeight: 1.35,
+};
+
+const scholarshipCopyStyle = {
+  ...mutedTextStyle,
+  margin: 0,
+  fontSize: "12.5px",
+  display: "-webkit-box",
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+
+const scholarshipMetaStyle = {
+  fontSize: "12px",
+  color: colors.muted,
+};
+
+const applicationListStyle = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "grid",
+  gap: "10px",
 };
 
 const applicationItemStyle = {
-  ...feedItemStyle,
-  textAlign: "left",
-};
-
-const applicationStatusStyle = {
-  ...mutedTextStyle,
-  margin: 0,
-};
-
-const applicationRemarkStyle = {
-  ...metaStyle,
-  marginTop: "2px",
-  lineHeight: 1.5,
-};
-
-const feedFooterStyle = {
   display: "flex",
-  justifyContent: "space-between",
   alignItems: "center",
   gap: "12px",
-  flexWrap: "wrap",
+  background: colors.surface,
+  border: `1px solid ${colors.border}`,
+  borderRadius: "13px",
+  padding: "13px 16px",
+};
+
+const statusDotStyle = {
+  width: "9px",
+  height: "9px",
+  borderRadius: "50%",
+  flex: "0 0 auto",
+};
+
+const applicationTitleStyle = {
+  display: "block",
+  fontSize: "14px",
+  color: colors.text,
+};
+
+const applicationMetaStyle = {
+  display: "block",
+  fontSize: "12px",
+  color: colors.muted,
+  marginTop: "2px",
+};
+
+const inlineLinkStyle = {
+  color: colors.primary,
+  fontWeight: 700,
 };
 
 export default StudentDashboard;

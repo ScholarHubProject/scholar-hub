@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import api, { getStoredUser } from "../api";
+import { HeroBanner } from "../components/ui";
 import {
   buttonPrimaryStyle,
   buttonSecondaryStyle,
@@ -10,9 +11,7 @@ import {
   inputStyle,
   mutedTextStyle,
   narrowShellStyle,
-  pageHeaderStyle,
   pageStyle,
-  titleStyle,
 } from "../sharedStyles";
 
 const getCurrentUser = () => {
@@ -342,14 +341,11 @@ const ApplicationForm = () => {
   return (
     <div style={pageStyle}>
       <main style={narrowShellStyle}>
-        <header style={pageHeaderStyle}>
-          <span style={eyebrowStyle}>Online Application</span>
-          <h1 style={titleStyle}>Scholarship Application Form</h1>
-          <p style={mutedTextStyle}>
-            Submit your scholarship application and monitor your application progress
-            securely through the system.
-          </p>
-        </header>
+        <HeroBanner
+          eyebrow="Online application"
+          title="Scholarship Application Form"
+          subtitle="Submit your scholarship application and monitor your progress securely through the system."
+        />
 
         {notice && (
           <div
@@ -418,7 +414,7 @@ const ApplicationForm = () => {
                 <input
                   style={fileInputStyle}
                   type="file"
-                  accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
+                  accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.heic,.heif"
                   onChange={(event) => {
                     updateApplicationFormAttachment(event.target.files);
                     event.target.value = "";
@@ -541,7 +537,7 @@ const ApplicationForm = () => {
               style={fileInputStyle}
               type="file"
               multiple
-              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
+              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.heic,.heif"
               onChange={(event) => {
                 updateAttachments(event.target.files);
                 event.target.value = "";

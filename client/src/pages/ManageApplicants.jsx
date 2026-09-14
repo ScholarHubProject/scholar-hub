@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import AcademicRecordDialog from "../components/AcademicRecordDialog";
 import api, { getApplicationArchiveUrl } from "../api";
 import {
   buttonDangerStyle,
@@ -145,12 +146,20 @@ const EmailIcon = () => (
   </svg>
 );
 
+// The term an application covers, or a nudge to record one - an
+// application with no term drops out of every per-semester chart.
+const formatTermLabel = (application) => {
+  const term = [application.semester, application.academic_year].filter(Boolean).join(" ");
+  return term || "Term not recorded";
+};
+
 const PAGE_SIZE = 25;
 
 const ManageApplicants = () => {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [editingRecord, setEditingRecord] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [notice, setNotice] = useState(null);
   // Search, filter and paging all happen in the database now. The endpoint used
@@ -159,13 +168,15 @@ const ManageApplicants = () => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
-  const [totals, setTotals] = useState({ total: 0, totalPages: 1 });
-  const pendingCount = applications.filter(
-    (application) => application.status === "Pending Review"
-  ).length;
-  const disapprovedCount = applications.filter(
-    (application) => application.status === "Rejected"
-  ).length;
+  // Counted by the server over the whole filtered set. Counting them here
+  // would only ever see the page in hand, which read as "16 disapproved"
+  // beside a total of 160.
+  const [totals, setTotals] = useState({
+    total: 0,
+    totalPages: 1,
+    pending: 0,
+    rejected: 0,
+  });
 
   const showNotice = (type, message) => {
     setNotice({ type, message });
@@ -187,6 +198,8 @@ const ManageApplicants = () => {
           setTotals({
             total: response.data.total || 0,
             totalPages: response.data.totalPages || 1,
+            pending: response.data.statusCounts?.pending || 0,
+            rejected: response.data.statusCounts?.rejected || 0,
           });
         })
         .catch((error) => {
@@ -235,7 +248,14 @@ const ManageApplicants = () => {
       loadApplications();
     } catch (error) {
       console.log("Application status update error:", error);
-      showNotice("error", "Failed to update application status");
+      // The server refuses an approval when the scholarship has no slots
+      // left, and says which scholarship and what to do about it. Replacing
+      // that with a generic failure left the coordinator with no way to tell
+      // a full scholarship from a broken connection.
+      showNotice(
+        "error",
+        error.response?.data?.message || "Failed to update application status"
+      );
     }
   };
 
@@ -414,12 +434,12 @@ const ManageApplicants = () => {
             </div>
             <div style={summaryCardStyle}>
               <span style={eyebrowStyle}>Pending</span>
-              <strong style={summaryNumberStyle}>{pendingCount}</strong>
+              <strong style={summaryNumberStyle}>{totals.pending}</strong>
               <p style={mutedTextStyle}>Waiting review</p>
             </div>
             <div style={summaryCardStyle}>
               <span style={eyebrowStyle}>Disapproved</span>
-              <strong style={summaryNumberStyle}>{disapprovedCount}</strong>
+              <strong style={summaryNumberStyle}>{totals.rejected}</strong>
               <p style={mutedTextStyle}>Rejected applications</p>
             </div>
           </div>
@@ -478,6 +498,7 @@ const ManageApplicants = () => {
                   <th style={thStyle}>Student</th>
                   <th style={thStyle}>Scholarship</th>
                   <th style={thStyle}>Status</th>
+                  <th style={thStyle}>Academic record</th>
                   <th style={thStyle}>Remarks</th>
                   <th style={thStyle}>Attachment</th>
                   <th style={thStyle}>Notify Email</th>
@@ -501,6 +522,23 @@ const ManageApplicants = () => {
                       <span style={getApplicantStatusStyle(application.status)}>
                         {formatStatusLabel(application.status)}
                       </span>
+                    </td>
+                    <td style={tdStyle}>
+                      <p style={tableSubtextStyle}>{formatTermLabel(application)}</p>
+                      <p style={tableSubtextStyle}>
+                        {application.application_type || "New"}
+                        {application.gpa != null ? ` · GPA ${Number(application.gpa).toFixed(2)}` : ""}
+                        {application.award_amount != null
+                          ? ` · ₱${Number(application.award_amount).toLocaleString("en-US")}`
+                          : ""}
+                      </p>
+                      <button
+                        type="button"
+                        style={downloadLinkStyle}
+                        onClick={() => setEditingRecord(application)}
+                      >
+                        Edit record
+                      </button>
                     </td>
                     <td style={tdStyle}>
                       <p style={tableSubtextStyle}>{application.remarks || "No remarks yet."}</p>
@@ -598,6 +636,17 @@ const ManageApplicants = () => {
               Next
             </button>
           </nav>
+        )}
+
+        {editingRecord && (
+          <AcademicRecordDialog
+            application={editingRecord}
+            onClose={() => setEditingRecord(null)}
+            onSaved={(type, message) => {
+              showNotice(type, message);
+              loadApplications();
+            }}
+          />
         )}
 
         {pendingDelete && (

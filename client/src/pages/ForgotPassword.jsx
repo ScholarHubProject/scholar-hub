@@ -1,170 +1,119 @@
-import { Link } from "react-router-dom";
-import { useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useRef, useState } from "react";
 import api from "../api";
 import {
-  authCardStyle,
-  authLogoStyle,
-  authWithLogoPageStyle,
-  buttonPrimaryStyle,
-  buttonSecondaryStyle,
-  colors,
-  inputStyle,
-  mutedTextStyle,
-} from "../sharedStyles";
+  AuthField,
+  AuthMessage,
+  AuthShell,
+  FormStack,
+  SecondaryButton,
+  SubmitButton,
+} from "../components/authUi";
+import { MailIcon } from "../components/icons";
+import { EMAIL_PATTERN } from "../authRules";
 
 const ForgotPassword = () => {
-  const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
+  const emailRef = useRef(null);
+  const [searchParams] = useSearchParams();
+
+  // The login page sends the address of whichever account the user was
+  // trying to open, so arriving here from a saved account tile does not
+  // mean typing it out again.
+  const [email, setEmail] = useState(() => searchParams.get("email")?.trim() || "");
+  const [fieldError, setFieldError] = useState("");
+  const [notice, setNotice] = useState(null);
   const [isDone, setIsDone] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async () => {
-    if (!email.trim()) {
-      setMessage("Please enter your email address");
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail) {
+      setFieldError("Enter the email address on your account.");
+      emailRef.current?.focus();
       return;
     }
 
+    if (!EMAIL_PATTERN.test(cleanEmail)) {
+      setFieldError("That does not look like an email address.");
+      emailRef.current?.focus();
+      return;
+    }
+
+    setFieldError("");
+    setNotice(null);
     setIsLoading(true);
-    setMessage("");
 
     try {
-      const response = await api.post("/password/forgot", { email: email.trim() });
+      const response = await api.post("/password/forgot", { email: cleanEmail });
       setIsDone(true);
-      setMessage(response.data.message);
+      setNotice({ tone: "success", text: response.data.message });
     } catch (error) {
-      setMessage(
-        error.response?.data?.message ||
-          "Cannot connect to the server. Please try again."
-      );
+      setNotice({
+        tone: "error",
+        text:
+          error.response?.data?.message ||
+          "Cannot reach the server right now. Please try again.",
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div style={authWithLogoPageStyle}>
-      <img src="/design.png" alt="Scholar Hub" style={logoStyle} />
-
-      <div style={cardStyle}>
-        <h1 style={brandStyle}>Forgot Password</h1>
-        <p style={subtitleStyle}>
-          Enter the email address on your account and we will send you a link to
-          choose a new password.
-        </p>
-
-        <div style={formStackStyle}>
+    <AuthShell
+      title="Forgot Password"
+      subtitle="Enter the email address on your account and we will send you a link to choose a new password."
+    >
+      <form onSubmit={handleSubmit} noValidate>
+        <FormStack gap={16}>
           {!isDone && (
-            <input
-              style={authInputStyle}
+            <AuthField
+              id="forgot-email"
+              name="email"
+              label="Email address"
               type="email"
-              placeholder="Email Address"
+              icon={MailIcon}
+              placeholder="you@school.edu.ph"
+              autoComplete="email"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck="false"
+              autoFocus
+              inputRef={emailRef}
               value={email}
+              error={fieldError}
               onChange={(e) => {
                 setEmail(e.target.value);
-                setMessage("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSubmit();
+                setFieldError("");
+                setNotice(null);
               }}
             />
           )}
 
-          {message && (
-            <p style={isDone ? noticeStyle : errorStyle}>{message}</p>
-          )}
+          {notice && <AuthMessage tone={notice.tone}>{notice.text}</AuthMessage>}
 
           {!isDone && (
-            <button onClick={handleSubmit} style={submitStyle} disabled={isLoading}>
-              {isLoading ? "Sending..." : "Send reset link"}
-            </button>
+            <SubmitButton loading={isLoading} loadingLabel="Sending...">
+              Send reset link
+            </SubmitButton>
           )}
 
           <Link to="/login" style={linkStyle}>
-            <button type="button" style={backButtonStyle}>
-              Back to login
-            </button>
+            <SecondaryButton>Back to sign in</SecondaryButton>
           </Link>
-        </div>
-      </div>
-    </div>
+        </FormStack>
+      </form>
+    </AuthShell>
   );
-};
-
-const cardStyle = {
-  ...authCardStyle,
-  width: "430px",
-  maxWidth: "100%",
-  padding: "clamp(22px, 6vw, 34px)",
-};
-
-const logoStyle = {
-  ...authLogoStyle,
-  transform: "translateY(26px)",
-};
-
-const brandStyle = {
-  color: colors.primary,
-  textAlign: "center",
-  margin: "0 0 8px",
-};
-
-const subtitleStyle = {
-  ...mutedTextStyle,
-  textAlign: "center",
-  marginBottom: "24px",
-  fontSize: "14px",
-};
-
-const formStackStyle = {
-  display: "grid",
-  gap: "16px",
-};
-
-const authInputStyle = {
-  ...inputStyle,
-  height: "48px",
-  background: "var(--sh-auth-field-bg)",
-};
-
-const baseMessageStyle = {
-  margin: 0,
-  padding: "12px 14px",
-  borderRadius: "10px",
-  fontWeight: "700",
-  fontSize: "14px",
-  textAlign: "center",
-};
-
-const errorStyle = {
-  ...baseMessageStyle,
-  background: "#fee2e2",
-  color: "#b91c1c",
-  border: "1px solid #fecaca",
-};
-
-const noticeStyle = {
-  ...baseMessageStyle,
-  background: "#dcfce7",
-  color: "#166534",
-  border: "1px solid #bbf7d0",
-};
-
-const submitStyle = {
-  ...buttonPrimaryStyle,
-  width: "100%",
-  height: "48px",
-  marginTop: "4px",
 };
 
 const linkStyle = {
   display: "block",
   width: "100%",
-};
-
-const backButtonStyle = {
-  ...buttonSecondaryStyle,
-  width: "100%",
-  height: "48px",
 };
 
 export default ForgotPassword;

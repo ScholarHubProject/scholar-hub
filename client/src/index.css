@@ -7,6 +7,38 @@ html {
 }
 
 :root {
+  /* Plus Jakarta Sans carries the headings and the big display figures;
+     Inter carries everything under 15px, where its taller x-height is
+     what keeps a 11.5px uppercase label legible. Both fall back to the
+     system stack, so a blocked font request changes the texture of the
+     page but never its layout. */
+  --sh-font-display: "Plus Jakarta Sans", "Segoe UI", system-ui, -apple-system,
+    sans-serif;
+  --sh-font-body: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+
+  /* One radius and shadow scale for the whole app. Cards were drifting
+     between 10px and 18px corners and three unrelated shadows; naming
+     the steps is what keeps a new panel matching the old ones. */
+  --sh-radius-sm: 10px;
+  --sh-radius-md: 14px;
+  --sh-radius-lg: 18px;
+  --sh-radius-xl: 22px;
+  --sh-shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.04);
+  --sh-shadow-md: 0 8px 20px rgba(15, 23, 42, 0.06);
+  --sh-shadow-lg: 0 16px 38px rgba(15, 23, 42, 0.08);
+  --sh-shadow-accent: 0 10px 24px rgba(249, 115, 22, 0.24);
+  --sh-ring: 0 0 0 3px rgba(249, 115, 22, 0.22);
+
+  /* Height of the institutional strip above the app bar. The topbar
+     offset and the page's top padding both read it, so they cannot
+     drift apart. Two stacked lines need the extra room. */
+  --sh-utility-strip: 44px;
+  /* The strip needs its own pair rather than borrowing --sh-primary-dark:
+     that token inverts to a pale peach in dark mode, which would leave
+     white text on a light bar at about 1.3:1. */
+  --sh-utility-bg: #9a3412;
+  --sh-utility-bg-deep: #7c2d12;
+  --sh-utility-ink: #ffffff;
   --sh-page: #fff7ed;
   --sh-page-alt: #ffedd5;
   --sh-surface: #ffffff;
@@ -41,6 +73,17 @@ html {
 }
 
 :root[data-theme="dark"] {
+  /* On a #111827 page a 6%-black shadow is simply not there. Depth in
+     dark mode comes from a denser shadow plus the surface being lighter
+     than the page, not from the same values as light mode. */
+  --sh-shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.3);
+  --sh-shadow-md: 0 8px 20px rgba(0, 0, 0, 0.38);
+  --sh-shadow-lg: 0 16px 38px rgba(0, 0, 0, 0.46);
+  --sh-shadow-accent: 0 10px 24px rgba(251, 146, 60, 0.26);
+  --sh-ring: 0 0 0 3px rgba(251, 146, 60, 0.3);
+  --sh-utility-bg: #0b1220;
+  --sh-utility-bg-deep: #060b14;
+  --sh-utility-ink: #cbd5e1;
   --sh-page: #111827;
   --sh-page-alt: #1f2937;
   --sh-surface: #172033;
@@ -76,11 +119,49 @@ html {
 
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  font-family: var(--sh-font-body);
+  font-size: 15px;
+  line-height: 1.55;
   background: var(--sh-page);
   color: var(--sh-text);
   transition: background 180ms ease, color 180ms ease;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--sh-font-display);
+  font-weight: 800;
+  /* Display sizes need the tracking pulled in; the optical spacing that
+     suits a 13px label is loose on a 36px page title. */
+  letter-spacing: -0.022em;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  letter-spacing: -0.01em;
+}
+
+/* Headline figures - the big orange numbers on the analytics cards -
+   are display type too, and lining figures keep 92% and 85% the same
+   height when they sit side by side in a card row. */
+strong,
+b {
+  font-family: inherit;
+}
+
+.sh-display {
+  font-family: var(--sh-font-display);
+  font-variant-numeric: lining-nums;
 }
 
 a {
@@ -103,9 +184,36 @@ button {
 
 input,
 select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+input,
+select,
 textarea {
   font-size: 15px;
   max-width: 100%;
+  transition: border-color 160ms ease, box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--sh-primary);
+  box-shadow: var(--sh-ring);
+}
+
+/* Keyboard users get the same ring everywhere. The mouse hover styles
+   below deliberately do not fire on touch, but focus always must. */
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--sh-primary);
+  outline-offset: 2px;
+  border-radius: var(--sh-radius-sm);
 }
 
 img,
@@ -154,6 +262,65 @@ a {
   .scholar-home-card:hover {
     transform: translateY(-3px) scale(1.012);
     filter: brightness(1.01);
+  }
+}
+
+/* The search pill: the border and background live on the label, not on
+   the input inside it, so the focus ring has to move there too.
+   :focus-within cannot be written as an inline style, which is why this
+   one control is styled here rather than beside its siblings in JS. */
+.sh-search-field:focus-within {
+  border-color: var(--sh-primary);
+  box-shadow: var(--sh-ring);
+}
+
+/* The inner input is borderless and transparent, so the global input
+   ring would draw a second, smaller rounded rect floating inside the
+   pill. The pill's own ring above replaces it. */
+.sh-search-field input:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* WebKit's clear button is worth keeping - it is the fastest way out of
+   a search - but it ships slate grey and gets tinted to match. */
+.sh-search-field input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  background: var(--sh-muted);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 6l12 12M18 6L6 18' stroke='%23000' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+/* Insight and stat cards lift on hover the way the home cards do, but
+   half as far - a dashboard is a grid of twenty of them, and the home
+   page's 3px pop reads as the whole page twitching at that density. */
+@media (hover: hover) and (pointer: fine) {
+  .sh-card-lift {
+    transition: transform 180ms ease, box-shadow 180ms ease,
+      border-color 180ms ease;
+  }
+
+  /* The cards carry their resting shadow and border as inline styles, so
+     a plain stylesheet rule loses to them no matter how specific it is.
+     The transform is the only declaration here that does not need the
+     flag - nothing sets one inline. */
+  .sh-card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sh-shadow-lg) !important;
+    border-color: var(--sh-primary) !important;
+  }
+}
+
+/* The banner illustration is decoration. Once the copy beside it drops
+   under about 320px the art is what has to go, otherwise it wraps below
+   the title and pushes the first card off the fold. */
+@media (max-width: 780px) {
+  .sh-hero-art {
+    display: none !important;
   }
 }
 
@@ -224,15 +391,37 @@ a {
   }
 }
 
-@media (max-width: 390px) {
+/* The brand is optically centred on wide screens, but centring it with
+   absolute positioning lets it slide underneath the notification and
+   profile buttons once the bar gets narrow. Below this width it goes
+   back into the flow next to the hamburger, so it can only ever run out
+   of room - never overlap. */
+@media (max-width: 640px) {
   .scholar-brand {
-    max-width: 160px;
+    position: static !important;
+    transform: none !important;
+    margin-right: auto;
+    min-width: 0;
     overflow: hidden;
   }
 
   .scholar-brand span span {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+}
+
+/* At phone widths the name has to fit whole - "Scholar H..." is worse
+   than a slightly smaller wordmark. */
+@media (max-width: 420px) {
+  .scholar-brand {
+    gap: 7px;
+    font-size: 19px !important;
+  }
+
+  .scholar-brand img {
+    width: 36px !important;
+    height: 36px !important;
   }
 }
 
@@ -331,5 +520,360 @@ a {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 1ms !important;
+  }
+}
+
+/* ============================================================
+   Analytics & reporting surface
+   ============================================================
+   Chart colors live here rather than in the JS style objects so a
+   theme switch repaints every chart in one place. The categorical
+   slots are assigned in a fixed order and never cycled: a series
+   keeps its hue when a filter removes its neighbours.
+
+   Both columns were checked against the surface they actually
+   render on (#ffffff light, #172033 dark) for the colour-vision
+   deficiency separation, lightness band and chroma floor. Three
+   light slots sit under 3:1 against white, so every chart that
+   uses them also ships a legend, direct labels and a table view -
+   colour is never the only channel. */
+:root {
+  --viz-surface: #ffffff;
+  --viz-grid: #f1e7dd;
+  --viz-axis: #d8c6b4;
+  --viz-ink: #1f2937;
+  --viz-ink-soft: #52514e;
+  --viz-ink-muted: #857f78;
+  --viz-series-1: #eb6834;
+  --viz-series-2: #2a78d6;
+  --viz-series-3: #1baf7a;
+  --viz-series-4: #4a3aa7;
+  --viz-series-5: #eda100;
+  --viz-series-6: #e87ba4;
+  --viz-track: #f3ece5;
+  --viz-good: #0ca30c;
+  --viz-warning: #fab219;
+  --viz-serious: #ec835a;
+  --viz-critical: #d03b3b;
+  --viz-good-wash: rgba(12, 163, 12, 0.1);
+  --viz-warning-wash: rgba(250, 178, 25, 0.14);
+  --viz-critical-wash: rgba(208, 59, 59, 0.1);
+  --viz-good-ink: #14532d;
+  --viz-warning-ink: #78350f;
+  --viz-critical-ink: #7f1d1d;
+  --viz-tooltip-bg: rgba(31, 41, 55, 0.96);
+  --viz-tooltip-ink: #ffffff;
+}
+
+:root[data-theme="dark"] {
+  --viz-surface: #172033;
+  --viz-grid: #24304a;
+  --viz-axis: #3a4761;
+  --viz-ink: #f8fafc;
+  --viz-ink-soft: #cbd5e1;
+  --viz-ink-muted: #94a3b8;
+  --viz-series-1: #d95926;
+  --viz-series-2: #3987e5;
+  --viz-series-3: #199e70;
+  --viz-series-4: #9085e9;
+  --viz-series-5: #c98500;
+  --viz-series-6: #d55181;
+  --viz-track: #24304a;
+  --viz-good: #0ca30c;
+  --viz-warning: #fab219;
+  --viz-serious: #ec835a;
+  --viz-critical: #d03b3b;
+  --viz-good-wash: rgba(12, 163, 12, 0.18);
+  --viz-warning-wash: rgba(250, 178, 25, 0.18);
+  --viz-critical-wash: rgba(208, 59, 59, 0.18);
+  --viz-good-ink: #86efac;
+  --viz-warning-ink: #fcd34d;
+  --viz-critical-ink: #fca5a5;
+  --viz-tooltip-bg: rgba(8, 12, 22, 0.96);
+  --viz-tooltip-ink: #f8fafc;
+}
+
+/* Axis ticks and table figures are columns of numbers, so they get
+   equal-width digits. Headline values deliberately do not - tabular
+   figures make a number like 121 look gappy at display sizes. */
+.viz-tick,
+.viz-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.viz-mark {
+  transition: opacity 160ms ease;
+}
+
+.viz-plot:hover .viz-mark {
+  opacity: 0.55;
+}
+
+.viz-plot .viz-mark.is-active,
+.viz-plot:hover .viz-mark.is-active {
+  opacity: 1;
+}
+
+/* A refetch holds the previous render at reduced opacity instead of
+   dropping back to a skeleton, so the page never jumps under a poll. */
+.viz-stale {
+  opacity: 0.55;
+  transition: opacity 200ms ease;
+}
+
+.viz-grow {
+  transform-origin: center bottom;
+  animation: vizGrow 420ms cubic-bezier(0.22, 0.68, 0.35, 1) both;
+}
+
+@keyframes vizGrow {
+  from {
+    transform: scaleY(0.02);
+    opacity: 0;
+  }
+
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.viz-draw {
+  animation: vizDraw 720ms ease-out both;
+}
+
+@keyframes vizDraw {
+  from {
+    stroke-dashoffset: var(--viz-draw-length, 1200);
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.viz-focusable:focus-visible {
+  outline: 2px solid var(--sh-primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Reports and dashboards get printed and handed in. Drop the app
+   chrome and put the cards on white so a saved PDF is readable. */
+@media print {
+  .sh-no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  .sh-print-block {
+    box-shadow: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+@keyframes shSkeleton {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* The reports page is a nav rail beside a table on a desktop and a
+   stacked list on a tablet. Inline styles cannot carry a media query,
+   so the one responsive rule on the page lives here. */
+.sh-reports-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 20px;
+}
+
+.sh-reports-nav {
+  position: sticky;
+  top: 96px;
+}
+
+@media (max-width: 900px) {
+  .sh-reports-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Stacked, the rail would be a 600px-tall list pushing the report off
+     the screen. It becomes a wrapping row of chips instead. The
+     !important flags are needed because the rail's spacing is set with
+     inline styles, which a stylesheet cannot otherwise beat. */
+  .sh-reports-nav {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 20px;
+  }
+
+  .sh-reports-nav > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0 !important;
+  }
+
+  .sh-reports-nav > div > span {
+    margin-bottom: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  .sh-reports-nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+}
+
+/* Stacking the block at the right edge takes the width pressure off, so
+   the term survives on narrow screens now - only the type tightens. */
+@media (max-width: 560px) {
+  .scholar-utility-block {
+    gap: 1px;
+    line-height: 1.05;
+  }
+
+  .scholar-utility-term {
+    letter-spacing: 0.1em;
+  }
+}
+
+/* ============================================================
+   Auth forms
+   ============================================================
+   The login and registration fields wrap their input in a shell that
+   carries the border, the background and a leading icon, so the ring
+   has to move to the shell the way it does for the search pill. A
+   pseudo-class cannot be written as an inline style, which is why
+   these few rules live here rather than beside their siblings in JS. */
+.sh-auth-field {
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.sh-auth-field:focus-within {
+  border-color: var(--sh-primary);
+  box-shadow: var(--sh-ring);
+}
+
+/* The inner control is borderless and transparent, so the global input
+   ring would draw a second rounded rect floating inside the shell. */
+.sh-auth-field input:focus-visible,
+.sh-auth-field select:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.sh-auth-field.is-invalid {
+  border-color: var(--sh-danger);
+}
+
+.sh-auth-field.is-invalid:focus-within {
+  border-color: var(--sh-danger);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+
+/* Autofill paints its own opaque background over the glass card. Keeping
+   the shell's colour means a filled-by-the-browser field still matches
+   the empty one beside it. */
+.sh-auth-field input:-webkit-autofill,
+.sh-auth-field input:-webkit-autofill:hover,
+.sh-auth-field input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--sh-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--sh-field) inset;
+  caret-color: var(--sh-text);
+  transition: background-color 100000s ease-in-out 0s;
+}
+
+@keyframes shSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sh-spinner {
+  animation: shSpin 700ms linear infinite;
+}
+
+/* An error appearing under a field should be noticed without moving the
+   fields below it more than the line it occupies. */
+@keyframes shFieldNote {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sh-field-note {
+  animation: shFieldNote 160ms ease-out both;
+}
+
+/* ============================================================
+   Registration layout
+   ============================================================
+   Registration asks for seven things, which as one column ran the
+   length of two screens: the submit button was never on screen at the
+   same time as the first field. The fields sit two to a row instead,
+   with the few that need the room - a full name, the password meter -
+   spanning both. Below 640px there is no second column to give, so the
+   grid collapses and the actions row stacks with the primary button on
+   top. Media queries cannot be written as inline styles, which is why
+   the layout lives here and not beside the fields in JS. */
+.sh-auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  /* Rows are as tall as their tallest field, and a field grows when it
+     is carrying an error. Without this the shorter one stretches and
+     its border no longer lines up with its neighbour. */
+  align-items: start;
+}
+
+.sh-auth-grid > .sh-span-all {
+  grid-column: 1 / -1;
+}
+
+.sh-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.sh-auth-actions-cta {
+  flex: 0 0 auto;
+  width: 236px;
+}
+
+@media (max-width: 640px) {
+  .sh-auth-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sh-auth-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .sh-auth-actions-cta {
+    width: 100%;
   }
 }

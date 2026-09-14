@@ -146,6 +146,56 @@ const sendPasswordResetEmail = ({ to, name, rawToken }) => {
   });
 };
 
+const sendEmailVerificationEmail = ({ to, name, rawToken }) => {
+  const verifyUrl = `${APP_URL || ""}/verify-email?token=${encodeURIComponent(rawToken)}`;
+
+  return sendMail({
+    to,
+    subject: "Confirm your ScholarHub email address",
+    text: `Hi ${name || "there"}, confirm this address to finish setting up your ScholarHub account: ${verifyUrl} (valid for 24 hours)`,
+    html: layout(
+      "Confirm your email address",
+      `<p>Hi ${escapeHtml(name || "there")},</p>
+       <p>Confirm this address so the scholarship office can reach you about your applications. The link is valid for 24 hours.</p>
+       <p><a href="${escapeHtml(verifyUrl)}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600">Confirm my email address</a></p>
+       <p style="font-size:13px;color:#6b7280">If you did not create a ScholarHub account, you can ignore this email.</p>`
+    ),
+  });
+};
+
+// Sent to the address on the account, not to the person who pressed the button:
+// a coordinator resetting a student's password must not be able to redirect the
+// link to themselves.
+const sendAccountInviteEmail = ({ to, name, rawToken, role, invitedBy }) => {
+  const resetUrl = `${APP_URL || ""}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+  return sendMail({
+    to,
+    subject: `You have been added to ScholarHub as ${role === "Admin" ? "an admin" : "a student"}`,
+    text: `Hi ${name || "there"}, ${invitedBy || "the scholarship office"} created a ScholarHub account for you. Choose a password here: ${resetUrl} (valid for 60 minutes)`,
+    html: layout(
+      "Your ScholarHub account is ready",
+      `<p>Hi ${escapeHtml(name || "there")},</p>
+       <p>${escapeHtml(invitedBy || "The scholarship office")} created a ScholarHub account for this address with the role <strong>${escapeHtml(role)}</strong>.</p>
+       <p>Choose your password to finish setting it up. The link is valid for 60 minutes.</p>
+       <p><a href="${escapeHtml(resetUrl)}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600">Choose a password</a></p>`
+    ),
+  });
+};
+
+const sendApplicationWithdrawnEmail = ({ to, name, scholarshipTitle }) =>
+  sendMail({
+    to,
+    subject: "Your ScholarHub application was withdrawn",
+    text: `Hi ${name || "there"}, your application for ${scholarshipTitle} has been withdrawn. You can apply again while the scholarship is still open.`,
+    html: layout(
+      "Application withdrawn",
+      `<p>Hi ${escapeHtml(name || "there")},</p>
+       <p>Your application for <strong>${escapeHtml(scholarshipTitle)}</strong> has been withdrawn at your request and is no longer in the review queue.</p>
+       <p>You can submit a new application while the scholarship is still open.</p>`
+    ),
+  });
+
 const sendApplicationStatusEmail = ({ to, name, scholarshipTitle, status, remarks }) => {
   const isApproved = status === "Approved";
 
@@ -169,6 +219,9 @@ const sendApplicationStatusEmail = ({ to, name, scholarshipTitle, status, remark
 module.exports = {
   isMailConfigured,
   sendMail,
-  sendPasswordResetEmail,
+  sendAccountInviteEmail,
   sendApplicationStatusEmail,
+  sendApplicationWithdrawnEmail,
+  sendEmailVerificationEmail,
+  sendPasswordResetEmail,
 };

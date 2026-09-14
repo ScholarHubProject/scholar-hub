@@ -7,7 +7,9 @@ import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
+import VerifyEmail from "./pages/VerifyEmail";
 import StudentDashboard from "./pages/StudentDashboard";
+import StudentAnalytics from "./pages/StudentAnalytics";
 import AdminDashboard from "./pages/AdminDashboard";
 import ManageScholarship from "./pages/ManageScholarship";
 import ManageApplicants from "./pages/ManageApplicants";
@@ -15,6 +17,8 @@ import ApplicationForm from "./pages/ApplicationForm";
 import Notifications from "./pages/Notifications";
 import Reports from "./pages/Reports";
 import Announcements from "./pages/Announcements";
+import ManageUsers from "./pages/ManageUsers";
+import AuditLog from "./pages/AuditLog";
 import ScholarshipPage from "./pages/ScholarshipPage";
 import TrackStatus from "./pages/TrackStatus";
 import { getSavedSettings } from "./settings";
@@ -56,6 +60,24 @@ const RoleRoute = ({ allowedRole, children }) => {
   return children;
 };
 
+// Notifications is the one screen both roles use, so it needs a guard that
+// asks for a session without pinning a role. RoleRoute would have redirected
+// an admin away from their own feed.
+const AuthRoute = ({ children }) => {
+  const user = getCurrentUser();
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!user.role) {
+    clearSession();
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+};
+
 const LoginRoute = ({ children }) => {
   const user = getCurrentUser();
 
@@ -79,6 +101,7 @@ function App() {
     "/register",
     "/forgot-password",
     "/reset-password",
+    "/verify-email",
   ].includes(location.pathname);
 
   return (
@@ -100,6 +123,9 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        {/* Public: the confirmation link is opened from an inbox, often on a
+            device that has never signed in here. */}
+        <Route path="/verify-email" element={<VerifyEmail />} />
 
         <Route
           path="/student-dashboard"
@@ -129,6 +155,24 @@ function App() {
         />
 
         <Route
+          path="/analytics"
+          element={
+            <RoleRoute allowedRole="Student">
+              <StudentAnalytics view="analytics" />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/outlook"
+          element={
+            <RoleRoute allowedRole="Student">
+              <StudentAnalytics view="outlook" />
+            </RoleRoute>
+          }
+        />
+
+        <Route
           path="/track-status"
           element={
             <RoleRoute allowedRole="Student">
@@ -140,9 +184,9 @@ function App() {
         <Route
           path="/notifications"
           element={
-            <RoleRoute allowedRole="Student">
+            <AuthRoute>
               <Notifications />
-            </RoleRoute>
+            </AuthRoute>
           }
         />
 
@@ -187,6 +231,24 @@ function App() {
           element={
             <RoleRoute allowedRole="Admin">
               <Announcements />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/manage-users"
+          element={
+            <RoleRoute allowedRole="Admin">
+              <ManageUsers />
+            </RoleRoute>
+          }
+        />
+
+        <Route
+          path="/audit-log"
+          element={
+            <RoleRoute allowedRole="Admin">
+              <AuditLog />
             </RoleRoute>
           }
         />

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api";
+import { HeroBanner } from "../components/ui";
 import {
+  buttonDangerStyle,
   buttonPrimaryStyle,
   buttonSecondaryStyle,
   cardStyle,
@@ -9,10 +11,17 @@ import {
   inputStyle,
   mutedTextStyle,
   narrowShellStyle,
-  pageHeaderStyle,
   pageStyle,
-  titleStyle,
+  statusPillStyle,
 } from "../sharedStyles";
+
+const EMPTY_FORM = {
+  title: "",
+  content: "",
+  audience: "All",
+  publishAt: "",
+  expiresAt: "",
+};
 
 const formatDate = (value) => {
   if (!value) return "Just now";
@@ -25,6 +34,27 @@ const formatDate = (value) => {
   });
 };
 
+// <input type="datetime-local"> speaks "YYYY-MM-DDTHH:mm" in local time and
+// refuses anything else, so a stored UTC timestamp has to be shifted into the
+// browser's offset before it will display at all.
+const toLocalInputValue = (value) => {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  const offsetMs = date.getTimezoneOffset() * 60000;
+
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+};
+
+const WINDOW_TONES = {
+  Live: { background: "#dcfce7", color: "#166534", borderColor: "#bbf7d0" },
+  Scheduled: { background: "#dbeafe", color: "#1e40af", borderColor: "#bfdbfe" },
+  Expired: { background: "#f1f5f9", color: "#475569", borderColor: "#e2e8f0" },
+};
+
 const Announcements = () => {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,10 +62,8 @@ const Announcements = () => {
   const [notice, setNotice] = useState(null);
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
   const [viewingAnnouncement, setViewingAnnouncement] = useState(null);
-  const [formData, setFormData] = useState({
-    title: "",
-    content: "",
-  });
+  const [deletingId, setDeletingId] = useState(null);
+  const [formData, setFormData] = useState(EMPTY_FORM);
 
   // State is only set from the promise callbacks. `loading` already starts as
   // true, so setting it again on mount would just queue a redundant render
@@ -117,7 +145,7 @@ const Announcements = () => {
         ]);
       }
 
-      setFormData({ title: "", content: "" });
+      setFormData(EMPTY_FORM);
       setEditingAnnouncement(null);
       setNotice(
         wasEditing
@@ -143,26 +171,63 @@ const Announcements = () => {
     setFormData({
       title: announcement.title || "",
       content: announcement.content || "",
+      audience: announcement.audience || "All",
+      publishAt: toLocalInputValue(announcement.publish_at),
+      expiresAt: toLocalInputValue(announcement.expires_at),
     });
     setNotice(null);
   };
 
   const cancelEditing = () => {
     setEditingAnnouncement(null);
-    setFormData({ title: "", content: "" });
+    setFormData(EMPTY_FORM);
     setNotice(null);
+  };
+
+  // Deleting genuinely removes it. An announcement carries no history anybody
+  // needs later, and a wrong one sitting on every student's screen is a live
+  // problem that editing it to say something else does not solve.
+  const handleDelete = async (announcement) => {
+    if (
+      !window.confirm(
+        `Delete "${announcement.title}"? Students will stop seeing it immediately. This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingId(announcement.id);
+    setNotice(null);
+
+    try {
+      await api.delete(`/announcements/${announcement.id}`);
+
+      setAnnouncements((current) =>
+        current.filter((row) => String(row.id) !== String(announcement.id))
+      );
+
+      if (String(editingAnnouncement?.id) === String(announcement.id)) {
+        cancelEditing();
+      }
+
+      setViewingAnnouncement(null);
+      setNotice("Announcement deleted");
+    } catch (error) {
+      console.log("Announcement delete error:", error);
+      setNotice(error.response?.data?.message || "Failed to delete announcement");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
     <div style={pageStyle}>
       <main style={narrowShellStyle}>
-        <header style={pageHeaderStyle}>
-          <span style={eyebrowStyle}>Campus Updates</span>
-          <h1 style={titleStyle}>Announcements</h1>
-          <p style={mutedTextStyle}>
-            Admin can post scholarship announcements and reminders for students.
-          </p>
-        </header>
+        <HeroBanner
+          eyebrow="Campus updates"
+          title="Announcements"
+          subtitle="Post scholarship announcements and reminders, and see everything students are being told in one place."
+        />
 
         {notice && <div style={noticeStyle}>{notice}</div>}
 
@@ -182,6 +247,44 @@ const Announcements = () => {
               value={formData.content}
               onChange={(event) => updateField("content", event.target.value)}
             />
+
+            {/* Leaving both times empty is the ordinary case: post it now,
+                leave it up. They exist for the two announcements a term that
+                should not appear yet, or should stop appearing on their own. */}
+            <div style={scheduleGridStyle}>
+              <label style={labelStyle}>
+                Audience
+                <select
+                  style={inputStyle}
+                  value={formData.audience}
+                  onChange={(event) => updateField("audience", event.target.value)}
+                >
+                  <option value="All">Everyone</option>
+                  <option value="Students">Students only</option>
+                  <option value="Admins">Admins only</option>
+                </select>
+              </label>
+
+              <label style={labelStyle}>
+                Publish at <span style={optionalStyle}>optional</span>
+                <input
+                  style={inputStyle}
+                  type="datetime-local"
+                  value={formData.publishAt}
+                  onChange={(event) => updateField("publishAt", event.target.value)}
+                />
+              </label>
+
+              <label style={labelStyle}>
+                Take down at <span style={optionalStyle}>optional</span>
+                <input
+                  style={inputStyle}
+                  type="datetime-local"
+                  value={formData.expiresAt}
+                  onChange={(event) => updateField("expiresAt", event.target.value)}
+                />
+              </label>
+            </div>
 
             <div style={actionsStyle}>
               <button type="submit" style={buttonPrimaryStyle} disabled={posting}>
@@ -222,9 +325,28 @@ const Announcements = () => {
           ) : (
             announcements.map((announcement) => (
               <article key={announcement.id} style={announcementCardStyle}>
+                <div style={cardTagRowStyle}>
+                  <span style={windowPillStyle(announcement.window_state)}>
+                    {announcement.window_state || "Live"}
+                  </span>
+                  <span style={audiencePillStyle}>
+                    {announcement.audience === "All"
+                      ? "Everyone"
+                      : `${announcement.audience} only`}
+                  </span>
+                </div>
+
                 <h3 style={cardTitleStyle}>{announcement.title}</h3>
                 <p style={mutedTextStyle}>{announcement.content}</p>
-                <p style={metaStyle}>{formatDate(announcement.created_at)}</p>
+
+                <p style={metaStyle}>
+                  {announcement.publish_at
+                    ? `Publishes ${formatDate(announcement.publish_at)}`
+                    : `Posted ${formatDate(announcement.created_at)}`}
+                  {announcement.expires_at &&
+                    ` · comes down ${formatDate(announcement.expires_at)}`}
+                </p>
+
                 <div style={cardActionsStyle}>
                   <button
                     type="button"
@@ -239,6 +361,14 @@ const Announcements = () => {
                     onClick={() => startEditing(announcement)}
                   >
                     Edit
+                  </button>
+                  <button
+                    type="button"
+                    style={buttonDangerStyle}
+                    onClick={() => handleDelete(announcement)}
+                    disabled={deletingId === announcement.id}
+                  >
+                    {deletingId === announcement.id ? "Deleting..." : "Delete"}
                   </button>
                 </div>
               </article>
@@ -283,6 +413,14 @@ const Announcements = () => {
                 </button>
                 <button
                   type="button"
+                  style={buttonDangerStyle}
+                  onClick={() => handleDelete(viewingAnnouncement)}
+                  disabled={deletingId === viewingAnnouncement.id}
+                >
+                  {deletingId === viewingAnnouncement.id ? "Deleting..." : "Delete"}
+                </button>
+                <button
+                  type="button"
                   style={buttonSecondaryStyle}
                   onClick={() => setViewingAnnouncement(null)}
                 >
@@ -313,6 +451,47 @@ const actionsStyle = {
   display: "flex",
   gap: "12px",
   flexWrap: "wrap",
+};
+
+const scheduleGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))",
+  gap: "14px",
+};
+
+const labelStyle = {
+  display: "grid",
+  gap: "6px",
+  fontSize: "13px",
+  fontWeight: 700,
+  color: colors.primaryDark,
+};
+
+const optionalStyle = {
+  color: colors.muted,
+  fontWeight: 600,
+  textTransform: "lowercase",
+};
+
+const cardTagRowStyle = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+};
+
+const windowPillStyle = (state) => {
+  const tone = WINDOW_TONES[state] || WINDOW_TONES.Live;
+
+  return {
+    ...statusPillStyle,
+    background: tone.background,
+    color: tone.color,
+    border: `1px solid ${tone.borderColor}`,
+  };
+};
+
+const audiencePillStyle = {
+  ...statusPillStyle,
 };
 
 const listStyle = {

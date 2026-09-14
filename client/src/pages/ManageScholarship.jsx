@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../api";
+import { HeroBanner } from "../components/ui";
 import {
   buttonDangerStyle,
   buttonPrimaryStyle,
@@ -10,11 +11,9 @@ import {
   eyebrowStyle,
   inputStyle,
   mutedTextStyle,
-  pageHeaderStyle,
   pageStyle,
   shellStyle,
   statusPillStyle,
-  titleStyle,
 } from "../sharedStyles";
 
 const emptyForm = {
@@ -180,13 +179,11 @@ const ManageScholarship = () => {
   return (
     <div style={pageStyle}>
       <main style={shellStyle}>
-        <header style={pageHeaderStyle}>
-          <span style={eyebrowStyle}>Admin Section</span>
-          <h1 style={titleStyle}>Scholarship Management</h1>
-          <p style={mutedTextStyle}>
-            Create, update, and organize scholarship programs.
-          </p>
-        </header>
+        <HeroBanner
+          eyebrow="Admin section"
+          title="Scholarship Management"
+          subtitle="Create, update and organize the scholarship programs students can apply to."
+        />
 
         {notice && (
           <div

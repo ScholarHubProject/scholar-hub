@@ -16,7 +16,10 @@ export const colors = {
 export const pageStyle = {
   minHeight: "100vh",
   background: colors.page,
-  padding: "clamp(86px, 12vw, 96px) clamp(14px, 4vw, 32px) clamp(28px, 6vw, 48px)",
+  // Top padding clears the fixed app bar plus the institutional strip
+  // above it, so a page never starts underneath them.
+  padding:
+    "calc(clamp(86px, 12vw, 96px) + var(--sh-utility-strip)) clamp(14px, 4vw, 32px) clamp(28px, 6vw, 48px)",
 };
 
 export const authPageStyle = {
@@ -62,45 +65,57 @@ export const narrowShellStyle = {
   margin: "0 auto",
 };
 
+// Kept in step with HeroBanner in components/ui.jsx: the pages that
+// still build their own header get the same wash, radius and shadow, so
+// a user moving between an analytics page and an admin form does not
+// cross a visual seam.
 export const pageHeaderStyle = {
-  background: "linear-gradient(90deg, var(--sh-header-start) 40%, var(--sh-header-end))",
+  position: "relative",
+  overflow: "hidden",
+  background: "linear-gradient(112deg, var(--sh-header-start) 30%, var(--sh-header-end))",
   border: `1px solid ${colors.border}`,
-  borderRadius: "clamp(14px, 3vw, 18px)",
-  padding: "clamp(20px, 5vw, 32px)",
-  marginBottom: "clamp(18px, 4vw, 24px)",
-  boxShadow: "0 10px 25px rgba(0,0,0,0.06)",
+  borderRadius: "var(--sh-radius-xl)",
+  padding: "clamp(20px, 4vw, 30px)",
+  marginBottom: "20px",
+  boxShadow: "var(--sh-shadow-md)",
 };
 
 export const eyebrowStyle = {
   display: "inline-block",
-  background: colors.primarySoft,
-  color: colors.primary,
-  padding: "8px 14px",
+  background: colors.surface,
+  color: colors.primaryDark,
+  border: `1px solid ${colors.border}`,
+  padding: "5px 13px",
   borderRadius: "999px",
-  fontWeight: "700",
-  fontSize: "13px",
+  fontWeight: 800,
+  fontSize: "11.5px",
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
   marginBottom: "12px",
 };
 
 export const titleStyle = {
+  fontFamily: "var(--sh-font-display)",
   color: colors.text,
-  fontSize: "clamp(28px, 7vw, 36px)",
-  lineHeight: "1.1",
-  margin: "0 0 10px",
+  fontSize: "clamp(26px, 5vw, 36px)",
+  lineHeight: 1.1,
+  letterSpacing: "-0.025em",
+  margin: "0 0 8px",
 };
 
 export const mutedTextStyle = {
   color: colors.muted,
-  lineHeight: "1.6",
+  fontSize: "14px",
+  lineHeight: 1.6,
   margin: 0,
 };
 
 export const cardStyle = {
   background: colors.surface,
   border: `1px solid ${colors.border}`,
-  borderRadius: "clamp(14px, 3vw, 18px)",
+  borderRadius: "var(--sh-radius-lg)",
   padding: "clamp(18px, 4vw, 24px)",
-  boxShadow: "0 10px 25px rgba(0,0,0,0.08)",
+  boxShadow: "var(--sh-shadow-md)",
 };
 
 export const authCardStyle = {
@@ -132,53 +147,62 @@ export const formStyle = {
 export const inputStyle = {
   width: "100%",
   padding: "12px 14px",
-  borderRadius: "10px",
+  borderRadius: "var(--sh-radius-sm)",
   border: `1px solid ${colors.border}`,
   background: colors.field,
   color: colors.text,
-  outlineColor: colors.primary,
+  fontSize: "14.5px",
+  // The focus ring is a :focus-visible rule in index.css so it can carry
+  // a box-shadow; an inline style cannot express a pseudo-class.
 };
 
 export const buttonPrimaryStyle = {
-  background: colors.primary,
-  color: "white",
-  padding: "12px 16px",
+  background: "linear-gradient(135deg, var(--sh-primary), var(--sh-primary-dark))",
+  color: "#ffffff",
+  padding: "12px 18px",
   border: "none",
-  borderRadius: "10px",
-  fontWeight: "700",
+  borderRadius: "var(--sh-radius-sm)",
+  fontSize: "14px",
+  fontWeight: 700,
+  letterSpacing: "0.01em",
+  boxShadow: "var(--sh-shadow-accent)",
   cursor: "pointer",
 };
 
 export const buttonSecondaryStyle = {
   background: colors.surface,
-  color: colors.primary,
-  padding: "12px 16px",
+  color: colors.primaryDark,
+  padding: "12px 18px",
   border: `1px solid ${colors.border}`,
-  borderRadius: "10px",
-  fontWeight: "700",
+  borderRadius: "var(--sh-radius-sm)",
+  fontSize: "14px",
+  fontWeight: 700,
+  boxShadow: "var(--sh-shadow-sm)",
   cursor: "pointer",
 };
 
 export const buttonDangerStyle = {
   background: colors.danger,
-  color: "white",
-  padding: "9px 12px",
+  color: "#ffffff",
+  padding: "9px 14px",
   border: "none",
-  borderRadius: "9px",
-  fontWeight: "700",
+  borderRadius: "var(--sh-radius-sm)",
+  fontSize: "13.5px",
+  fontWeight: 700,
 };
 
 export const statusPillStyle = {
   display: "inline-flex",
   alignItems: "center",
+  gap: "6px",
   width: "fit-content",
   background: colors.primarySoft,
   color: colors.primaryDark,
   border: `1px solid ${colors.border}`,
   borderRadius: "999px",
-  padding: "6px 10px",
-  fontSize: "13px",
-  fontWeight: "700",
+  padding: "5px 11px",
+  fontSize: "12.5px",
+  fontWeight: 700,
 };
 
 export const tableWrapStyle = {
@@ -190,14 +214,20 @@ export const tableStyle = {
   width: "100%",
   borderCollapse: "collapse",
   minWidth: "680px",
+  fontSize: "14px",
 };
 
 export const thStyle = {
   textAlign: "left",
   color: colors.primaryDark,
   borderBottom: `1px solid ${colors.border}`,
-  padding: "14px 12px",
+  padding: "12px",
   background: colors.primarySoft,
+  fontSize: "11.5px",
+  fontWeight: 800,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  whiteSpace: "nowrap",
 };
 
 export const tdStyle = {

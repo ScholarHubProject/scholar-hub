@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import api, { getApplicationFileUrl, getStoredUser } from "../api";
+import { HeroBanner } from "../components/ui";
 import {
+  buttonDangerStyle,
+  buttonPrimaryStyle,
   buttonSecondaryStyle,
   cardGridStyle,
   cardStyle,
   colors,
   eyebrowStyle,
   mutedTextStyle,
-  pageHeaderStyle,
   pageStyle,
   shellStyle,
   statusPillStyle,
-  titleStyle,
 } from "../sharedStyles";
 
 const AUTO_SYNC_MS = 5000;
@@ -68,6 +69,15 @@ const getStatusLabel = (status) => {
   return status || "Pending";
 };
 
+// The same window the server enforces. Once a coordinator has ruled, the file
+// set is the evidence the ruling was made on and stops being the student's to
+// edit; showing the controls anyway would mean the refusal is the first time
+// anyone hears about the rule.
+const isEditable = (application) =>
+  String(application?.status || "").trim() === "Pending Review";
+
+const MAX_REQUIREMENT_FILES = 10;
+
 const getProgressSteps = (application) => {
   const applicationFormFiles = getApplicationFormFiles(application);
   const requirementFiles = getRequirementFiles(application);
@@ -120,7 +130,12 @@ const TrackStatus = () => {
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [applicationFormOpen, setApplicationFormOpen] = useState(true);
   const [documentsOpen, setDocumentsOpen] = useState(true);
+  const [actionNotice, setActionNotice] = useState(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [removingPath, setRemovingPath] = useState(null);
   const syncingRef = useRef(false);
+  const fileInputRef = useRef(null);
 
   const loadApplications = useCallback(
     async ({ initial = false, silent = false } = {}) => {
@@ -194,29 +209,152 @@ const TrackStatus = () => {
     };
   }, [loadApplications]);
 
+  // The open dialog holds its own copy of the application, so a change has to
+  // be written to both it and the list or the dialog keeps showing the file it
+  // just removed.
+  const applyServerCopy = (applicationId, changes) => {
+    setApplications((current) =>
+      current.map((row) => (row.id === applicationId ? { ...row, ...changes } : row))
+    );
+    setSelectedApplication((current) =>
+      current && current.id === applicationId ? { ...current, ...changes } : current
+    );
+  };
+
+  const handleWithdraw = async (application) => {
+    if (
+      !window.confirm(
+        `Withdraw your application for ${application.scholarship_title}? It leaves the review queue immediately. You can apply again while the scholarship is still open.`
+      )
+    ) {
+      return;
+    }
+
+    const reason = window.prompt(
+      "Why are you withdrawing? (optional — this is shown to the scholarship office)",
+      ""
+    );
+
+    setWithdrawing(true);
+    setActionNotice(null);
+
+    try {
+      const response = await api.post(`/applications/${application.id}/withdraw`, {
+        reason: reason || "",
+      });
+
+      applyServerCopy(application.id, {
+        status: "Withdrawn",
+        remarks: reason ? `Withdrawn by the applicant: ${reason}` : "Withdrawn by the applicant.",
+      });
+      setActionNotice({ tone: "success", text: response.data.message });
+    } catch (error) {
+      setActionNotice({
+        tone: "error",
+        text:
+          error.response?.data?.message ||
+          "That application could not be withdrawn. Please try again.",
+      });
+      loadApplications({ silent: true });
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
+  const handleAddDocuments = async (application, files) => {
+    if (!files || files.length === 0) return;
+
+    const formData = new FormData();
+    Array.from(files).forEach((file) => formData.append("attachments", file));
+
+    setUploading(true);
+    setActionNotice(null);
+
+    try {
+      const response = await api.post(
+        `/applications/${application.id}/documents`,
+        formData
+      );
+
+      applyServerCopy(application.id, {
+        uploaded_files: response.data.uploaded_files,
+      });
+      setActionNotice({ tone: "success", text: response.data.message });
+    } catch (error) {
+      setActionNotice({
+        tone: "error",
+        text:
+          error.response?.data?.message ||
+          "Those files could not be uploaded. Please try again.",
+      });
+    } finally {
+      setUploading(false);
+      // Clearing the input matters: without it, choosing the same file again
+      // fires no change event and the upload silently does not happen.
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // fileIndex counts from the requirement list, which starts one past the
+  // application form. The server indexes the whole file list, so the form's
+  // slot is added back here.
+  const handleRemoveDocument = async (application, file, fileIndex) => {
+    if (!window.confirm(`Remove "${file.name}" from this application?`)) return;
+
+    setRemovingPath(file.path || file.name);
+    setActionNotice(null);
+
+    try {
+      const response = await api.delete(
+        `/applications/${application.id}/documents/${fileIndex + 1}`
+      );
+
+      applyServerCopy(application.id, {
+        uploaded_files: response.data.uploaded_files,
+      });
+      setActionNotice({ tone: "success", text: response.data.message });
+    } catch (error) {
+      setActionNotice({
+        tone: "error",
+        text:
+          error.response?.data?.message ||
+          "That document could not be removed. Please try again.",
+      });
+    } finally {
+      setRemovingPath(null);
+    }
+  };
+
   return (
     <div style={pageStyle}>
       <main style={shellStyle}>
-        <header style={pageHeaderStyle}>
-          <span style={eyebrowStyle}>Application Progress</span>
-          <h1 style={titleStyle}>Track Application Status</h1>
-          <p style={mutedTextStyle}>
-            View your submitted applications and admin approval updates.
-          </p>
+        <HeroBanner
+          eyebrow="Application progress"
+          title="Track Application Status"
+          subtitle="Follow every application you have submitted and the approval updates the office has posted against it."
+          actions={
+            <>
+              <span style={statusBadgeStyle}>{refreshing ? "Syncing…" : "Live"}</span>
+              <span style={updatedTextStyle}>
+                {lastUpdated
+                  ? `Last synced ${lastUpdated.toLocaleTimeString()}`
+                  : "Waiting for first sync…"}
+              </span>
+              <button
+                type="button"
+                style={{ ...buttonSecondaryStyle, marginLeft: "auto" }}
+                onClick={() => loadApplications()}
+                disabled={refreshing}
+              >
+                Refresh
+              </button>
+            </>
+          }
+        />
 
-          <div style={headerActionsStyle}>
-            <span style={statusBadgeStyle}>{refreshing ? "Syncing..." : "Live"}</span>
-            <button type="button" style={buttonSecondaryStyle} onClick={() => loadApplications()} disabled={refreshing}>
-              Refresh
-            </button>
-          </div>
-
-          <p style={updatedTextStyle}>
-            {lastUpdated
-              ? `Last synced ${lastUpdated.toLocaleTimeString()}`
-              : "Waiting for first sync..."}
-          </p>
-        </header>
+        {actionNotice && (
+          <div style={actionNoticeStyle(actionNotice.tone)}>{actionNotice.text}</div>
+        )}
 
         {loading ? (
           <div style={stateCardStyle}>Loading your applications...</div>
@@ -248,17 +386,33 @@ const TrackStatus = () => {
                 <p style={mutedTextStyle}>
                   <strong>Remarks:</strong> {application.remarks || "Waiting for admin review."}
                 </p>
-                <button
-                  type="button"
-                  style={buttonSecondaryStyle}
-                  onClick={() => {
-                    setSelectedApplication(application);
-                    setApplicationFormOpen(true);
-                    setDocumentsOpen(true);
-                  }}
-                >
-                  View Application
-                </button>
+                <div style={cardActionsStyle}>
+                  <button
+                    type="button"
+                    style={buttonSecondaryStyle}
+                    onClick={() => {
+                      setSelectedApplication(application);
+                      setApplicationFormOpen(true);
+                      setDocumentsOpen(true);
+                      setActionNotice(null);
+                    }}
+                  >
+                    View Application
+                  </button>
+
+                  {/* Only while nobody has decided. An approved or rejected
+                      application is a record of a decision, not a draft. */}
+                  {isEditable(application) && (
+                    <button
+                      type="button"
+                      style={buttonDangerStyle}
+                      onClick={() => handleWithdraw(application)}
+                      disabled={withdrawing}
+                    >
+                      {withdrawing ? "Withdrawing..." : "Withdraw"}
+                    </button>
+                  )}
+                </div>
               </article>
             ))}
           </section>
@@ -412,19 +566,68 @@ const TrackStatus = () => {
                                       {file.type || "File uploaded"}
                                     </p>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      openApplicationFile(selectedApplication, fileIndex + 1)
-                                    }
-                                    style={fileButtonStyle}
-                                  >
-                                    View
-                                  </button>
+                                  <div style={fileActionsStyle}>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openApplicationFile(selectedApplication, fileIndex + 1)
+                                      }
+                                      style={fileButtonStyle}
+                                    >
+                                      View
+                                    </button>
+
+                                    {isEditable(selectedApplication) && (
+                                      <button
+                                        type="button"
+                                        style={removeFileButtonStyle}
+                                        disabled={removingPath === (file.path || file.name)}
+                                        onClick={() =>
+                                          handleRemoveDocument(
+                                            selectedApplication,
+                                            file,
+                                            fileIndex
+                                          )
+                                        }
+                                      >
+                                        {removingPath === (file.path || file.name)
+                                          ? "Removing..."
+                                          : "Remove"}
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               ))
                             ) : (
                               <p style={progressEmptyFilesStyle}>No files uploaded.</p>
+                            )}
+
+                            {/* This is the answer to "your ID scan is
+                                unreadable, send it again", which the app
+                                previously had none: the only remedy was for a
+                                coordinator to delete the whole application. */}
+                            {isEditable(selectedApplication) && (
+                              <div style={uploadRowStyle}>
+                                <input
+                                  ref={fileInputRef}
+                                  type="file"
+                                  multiple
+                                  accept=".pdf,.doc,.docx,image/jpeg,image/png,image/heic,image/heif,image/webp"
+                                  style={fileInputStyle}
+                                  disabled={uploading}
+                                  onChange={(event) =>
+                                    handleAddDocuments(
+                                      selectedApplication,
+                                      event.target.files
+                                    )
+                                  }
+                                />
+                                <p style={progressFileMetaStyle}>
+                                  {uploading
+                                    ? "Uploading..."
+                                    : `PDF, Word or image files, up to ${MAX_REQUIREMENT_FILES} in total.`}
+                                </p>
+                              </div>
                             )}
                           </div>
                         )}
@@ -434,6 +637,32 @@ const TrackStatus = () => {
                 </div>
               </div>
 
+              <div style={dialogFooterStyle}>
+                {isEditable(selectedApplication) ? (
+                  <button
+                    type="button"
+                    style={buttonDangerStyle}
+                    onClick={() => handleWithdraw(selectedApplication)}
+                    disabled={withdrawing}
+                  >
+                    {withdrawing ? "Withdrawing..." : "Withdraw this application"}
+                  </button>
+                ) : (
+                  <p style={progressFileMetaStyle}>
+                    {String(selectedApplication.status).trim() === "Withdrawn"
+                      ? "You withdrew this application. Apply again while the scholarship is still open."
+                      : "This application has been reviewed, so its documents can no longer be changed. Contact the scholarship office if something needs correcting."}
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  style={buttonPrimaryStyle}
+                  onClick={() => setSelectedApplication(null)}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -447,6 +676,65 @@ const applicationCardStyle = {
   display: "grid",
   gap: "12px",
 };
+
+const cardActionsStyle = {
+  display: "flex",
+  gap: "10px",
+  flexWrap: "wrap",
+};
+
+const fileActionsStyle = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+};
+
+const removeFileButtonStyle = {
+  border: "none",
+  background: "transparent",
+  color: colors.danger,
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+  textDecoration: "underline",
+  padding: "6px 4px",
+};
+
+const uploadRowStyle = {
+  display: "grid",
+  gap: "8px",
+  marginTop: "12px",
+  paddingTop: "12px",
+  borderTop: `1px dashed ${colors.border}`,
+};
+
+const fileInputStyle = {
+  width: "100%",
+  fontSize: "13px",
+  color: colors.text,
+};
+
+const dialogFooterStyle = {
+  display: "flex",
+  gap: "12px",
+  flexWrap: "wrap",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginTop: "18px",
+  paddingTop: "16px",
+  borderTop: `1px solid ${colors.border}`,
+};
+
+const actionNoticeTones = {
+  success: { background: "#dcfce7", color: "#166534", borderColor: "#bbf7d0" },
+  error: { background: "#fee2e2", color: "#b91c1c", borderColor: "#fecaca" },
+};
+
+const actionNoticeStyle = (tone) => ({
+  ...cardStyle,
+  ...actionNoticeTones[tone || "success"],
+  marginBottom: "18px",
+});
 
 const cardTitleStyle = {
   margin: 0,
@@ -676,14 +964,6 @@ const errorTextStyle = {
   fontWeight: "700",
 };
 
-const headerActionsStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-  flexWrap: "wrap",
-  marginTop: "10px",
-};
-
 const statusBadgeStyle = {
   ...eyebrowStyle,
   marginBottom: 0,
@@ -691,8 +971,7 @@ const statusBadgeStyle = {
 
 const updatedTextStyle = {
   ...mutedTextStyle,
-  marginTop: "12px",
-  fontSize: "13px",
+  fontSize: "12.5px",
 };
 
 export default TrackStatus;

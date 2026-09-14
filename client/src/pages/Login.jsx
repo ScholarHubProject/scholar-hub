@@ -1,78 +1,199 @@
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api, { saveSession } from "../api";
 import { getSavedSettings } from "../settings";
 import {
-  authCardStyle,
-  authLogoStyle,
-  authWithLogoPageStyle,
-  buttonPrimaryStyle,
-  buttonSecondaryStyle,
-  colors,
-  inputStyle,
-  mutedTextStyle,
-} from "../sharedStyles";
+  AuthField,
+  AuthMessage,
+  AuthShell,
+  FormStack,
+  PasswordField,
+  SecondaryButton,
+  SegmentedChoice,
+  SubmitButton,
+} from "../components/authUi";
+import { AccountHeader, AccountPicker } from "../components/accountSwitcher";
+import { CapIcon, MailIcon, ShieldIcon } from "../components/icons";
+import { EMAIL_PATTERN } from "../authRules";
+import {
+  forgetAccount,
+  getAccountLabel,
+  getSavedAccounts,
+  rememberAccount,
+  subscribeToSavedAccounts,
+} from "../savedAccounts";
+import { colors } from "../sharedStyles";
 
-const iconProps = {
-  width: 20,
-  height: 20,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 2,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-};
+const ROLE_OPTIONS = [
+  { value: "Student", label: "Student", icon: CapIcon },
+  { value: "Admin", label: "Admin", icon: ShieldIcon },
+];
 
-const EyeIcon = () => (
-  <svg {...iconProps}>
-    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
+// The page is one form shown three ways:
+//   picker   — the accounts already used on this browser, plus "+"
+//   password — one of those accounts chosen; only the password is asked
+//   form     — the full email-and-password form, used to add an account
+// email and userType are shared state throughout, so submitting is the
+// same request whichever way the user got there.
+const VIEWS = { picker: "picker", password: "password", form: "form" };
 
-const EyeOffIcon = () => (
-  <svg {...iconProps}>
-    <path d="M10.6 5.2A9.8 9.8 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.4 4.3M6.2 6.3A17.5 17.5 0 0 0 2 12s3.6 7 10 7a9.6 9.6 0 0 0 4.2-.9" />
-    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
-    <path d="m3 3 18 18" />
-  </svg>
-);
+const forgotPasswordLink = (email) =>
+  email.trim() ? `/forgot-password?email=${encodeURIComponent(email.trim())}` : "/forgot-password";
 
 const Login = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [userType, setUserType] = useState("");
-  const [email, setEmail] = useState("");
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
+
+  const [savedAccounts, setSavedAccounts] = useState(getSavedAccounts);
+  // A session that expired belonged to whoever signed in last, which is
+  // the first tile — so that account is opened at its password prompt
+  // rather than making the user pick themselves out of their own list.
+  const [activeAccount, setActiveAccount] = useState(() =>
+    searchParams.get("expired") ? getSavedAccounts()[0] || null : null
+  );
+  const [view, setView] = useState(() => {
+    const accounts = getSavedAccounts();
+    if (accounts.length === 0) return VIEWS.form;
+    return searchParams.get("expired") ? VIEWS.password : VIEWS.picker;
+  });
+
+  // Students are the overwhelming majority of sign-ins, so the form opens
+  // on the answer that is almost always right. An admin who forgets to
+  // switch is put right by handleRoleMismatch below rather than being
+  // left to guess.
+  const [userType, setUserType] = useState(
+    () => (searchParams.get("expired") ? getSavedAccounts()[0]?.role : null) || "Student"
+  );
+  const [email, setEmail] = useState(
+    () => (searchParams.get("expired") ? getSavedAccounts()[0]?.email : "") || ""
+  );
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  // ?expired=1 is set by the axios interceptor when a request comes back 401,
-  // so the user is told why they were bounced back here.
-  const [message, setMessage] = useState(
-    searchParams.get("expired") ? "Your session has expired. Please log in again." : ""
+  const [fieldErrors, setFieldErrors] = useState({});
+  // ?expired=1 is set by the axios interceptor when a request comes back
+  // 401, so the user is told why they were bounced back here. It is an
+  // explanation, not a failure, and is toned accordingly.
+  const [notice, setNotice] = useState(
+    searchParams.get("expired")
+      ? { tone: "info", text: "Your session has expired. Please sign in again." }
+      : null
   );
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = async () => {
-    setMessage("");
+  // Signing in or removing an account in another tab should not leave
+  // this tab's tiles showing a list that no longer exists.
+  useEffect(() => subscribeToSavedAccounts(setSavedAccounts), []);
 
-    if (!email.trim() || !password.trim()) {
-      setMessage("Please enter your email and password");
+  // The password field is the only thing to do on that screen, so the
+  // cursor starts there. autoFocus would not fire on a view change,
+  // because React keeps the same input element between views.
+  useEffect(() => {
+    if (view === VIEWS.password) passwordRef.current?.focus();
+  }, [view]);
+
+  const clearErrors = () => {
+    setFieldErrors({});
+    setNotice(null);
+  };
+
+  const openAccount = (account) => {
+    setActiveAccount(account);
+    setEmail(account.email);
+    setUserType(account.role);
+    setPassword("");
+    clearErrors();
+    setView(VIEWS.password);
+  };
+
+  const openAddAccount = () => {
+    setActiveAccount(null);
+    setEmail("");
+    setPassword("");
+    setUserType("Student");
+    clearErrors();
+    setView(VIEWS.form);
+  };
+
+  const openPicker = () => {
+    setActiveAccount(null);
+    setPassword("");
+    clearErrors();
+    setView(VIEWS.picker);
+  };
+
+  const handleForget = (account) => {
+    const remaining = forgetAccount(account.email);
+    setSavedAccounts(remaining);
+
+    if (remaining.length === 0) {
+      openAddAccount();
+    } else if (activeAccount?.email === account.email) {
+      openPicker();
+    }
+  };
+
+  const validate = () => {
+    const errors = {};
+
+    // On the password screen the address came from a tile, so there is
+    // no email field on show to complain about.
+    if (view !== VIEWS.password) {
+      if (!email.trim()) {
+        errors.email = "Enter the email address on your account.";
+      } else if (!EMAIL_PATTERN.test(email.trim())) {
+        errors.email = "That does not look like an email address.";
+      }
+    }
+
+    if (!password) {
+      errors.password = "Enter your password.";
+    }
+
+    return errors;
+  };
+
+  // A 403 from the server means the account exists and the password was
+  // right — only the role picker was wrong. Flipping it for the user
+  // costs one press instead of a second failed attempt, which matters
+  // because failed attempts count towards a 15-minute lockout.
+  const handleRoleMismatch = (message) => {
+    const matched = /registered as (\w+)/i.exec(message || "");
+    const actualRole = ROLE_OPTIONS.find(
+      (option) => option.value.toLowerCase() === matched?.[1]?.toLowerCase()
+    );
+
+    if (!actualRole) return false;
+
+    setUserType(actualRole.value);
+    setNotice({
+      tone: "info",
+      text: `This is an ${actualRole.value} account — switched for you. Press Sign in again.`,
+    });
+    return true;
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    const errors = validate();
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setNotice(null);
+      (errors.email ? emailRef : passwordRef).current?.focus();
       return;
     }
 
-    if (!userType) {
-      setMessage("Please select user type");
-      return;
-    }
-
+    setFieldErrors({});
+    setNotice(null);
     setIsLoading(true);
 
     try {
       const response = await api.post("/login", {
         email: email.trim(),
-        password: password.trim(),
+        password,
         role: userType,
       });
 
@@ -80,6 +201,9 @@ const Login = () => {
       const settings = getSavedSettings();
 
       saveSession(response.data.token, currentUser);
+      // Saved only once the password has been accepted, so a tile always
+      // stands for an account that really signed in here.
+      rememberAccount(currentUser);
       navigate(
         currentUser.role === "Student" && settings.defaultDashboard === "Scholarships"
           ? "/scholarships"
@@ -88,194 +212,255 @@ const Login = () => {
             : "/admin-dashboard"
       );
     } catch (error) {
-      setMessage(
-        error.response?.data?.message ||
-          "Cannot connect to the server. Please start the backend first."
-      );
+      const message = error.response?.data?.message;
+
+      if (error.response?.status === 403 && handleRoleMismatch(message)) {
+        return;
+      }
+
+      setNotice({
+        tone: "error",
+        text:
+          message ||
+          "Cannot reach the server right now. Check your connection and try again.",
+      });
+
+      // Wrong credentials: clear the password and put the cursor back in
+      // it, which is the only field they can usefully change.
+      if (error.response?.status === 401) {
+        setPassword("");
+        passwordRef.current?.focus();
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
+  const subtitle = {
+    [VIEWS.picker]: "Choose an account to continue.",
+    [VIEWS.password]: "Enter your password to continue.",
+    [VIEWS.form]:
+      savedAccounts.length > 0
+        ? "Sign in with another account, or create a new one."
+        : "Online Scholarship Monitoring System",
+  }[view];
+
+  if (view === VIEWS.picker) {
+    return (
+      <AuthShell title="Scholar Hub" subtitle={subtitle}>
+        <FormStack gap={16}>
+          <AccountPicker
+            accounts={savedAccounts}
+            onSelect={openAccount}
+            onForget={handleForget}
+            onAddAccount={openAddAccount}
+          />
+
+          {notice && <AuthMessage tone={notice.tone}>{notice.text}</AuthMessage>}
+
+          <p style={pickerNoteStyle}>
+            Your password is still asked for every time. Remove an account with the
+            &times; on its tile.
+          </p>
+        </FormStack>
+      </AuthShell>
+    );
+  }
+
   return (
-    <div style={authWithLogoPageStyle}>
-      <img src="/design.png" alt="Scholar Hub" style={loginLogoStyle} />
+    <AuthShell title="Scholar Hub" subtitle={subtitle}>
+      {view === VIEWS.form && savedAccounts.length > 0 && (
+        <button type="button" style={backButtonStyle} onClick={openPicker}>
+          &larr; Back to saved accounts
+        </button>
+      )}
 
-      <div style={loginCardStyle}>
-        <h1 style={brandStyle}>
-          Scholar Hub
-        </h1>
+      <form onSubmit={handleSubmit} noValidate>
+        <FormStack gap={15}>
+          {view === VIEWS.password ? (
+            <AccountHeader account={activeAccount} onSwitch={openPicker} />
+          ) : (
+            <>
+              <SegmentedChoice
+                label="I am signing in as"
+                name="role"
+                options={ROLE_OPTIONS}
+                value={userType}
+                onChange={(value) => {
+                  setUserType(value);
+                  setNotice(null);
+                }}
+              />
 
-        <p style={subtitleStyle}>
-          Online Scholarship Monitoring System
-        </p>
+              <AuthField
+                id="login-email"
+                name="email"
+                label="Email address"
+                type="email"
+                icon={MailIcon}
+                placeholder="you@school.edu.ph"
+                autoComplete="username"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
+                autoFocus
+                inputRef={emailRef}
+                value={email}
+                error={fieldErrors.email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  clearErrors();
+                }}
+              />
+            </>
+          )}
 
-        <div style={formStackStyle}>
-          <input
-            style={authInputStyle}
-            type="email"
-            placeholder="Email Address"
-            value={email}
+          <PasswordField
+            id="login-password"
+            name="password"
+            label="Password"
+            placeholder="Your password"
+            autoComplete="current-password"
+            inputRef={passwordRef}
+            value={password}
+            error={fieldErrors.password}
             onChange={(e) => {
-              setEmail(e.target.value);
-              setMessage("");
+              setPassword(e.target.value);
+              clearErrors();
             }}
           />
 
-          <div style={passwordFieldStyle}>
-            <input
-              style={passwordInputStyle}
-              type={showPassword ? "text" : "password"}
-              placeholder="Password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setMessage("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleLogin();
-              }}
-            />
-
-            <button
-              type="button"
-              style={passwordToggleStyle}
-              onClick={() => setShowPassword((visible) => !visible)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              title={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-            </button>
+          <div style={forgotRowStyle}>
+            <Link to={forgotPasswordLink(email)} style={forgotLinkStyle}>
+              Forgot your password?
+            </Link>
           </div>
 
-          <select
-            style={authInputStyle}
-            value={userType}
-            onChange={(e) => setUserType(e.target.value)}
+          {notice && <AuthMessage tone={notice.tone}>{notice.text}</AuthMessage>}
+
+          <SubmitButton loading={isLoading} loadingLabel="Checking account...">
+            {view === VIEWS.password ? (
+              // A long registered name must not push the label onto a
+              // second line inside a fixed-height button.
+              <span style={submitLabelStyle}>
+                Sign in as {getAccountLabel(activeAccount)}
+              </span>
+            ) : (
+              "Sign in"
+            )}
+          </SubmitButton>
+        </FormStack>
+      </form>
+
+      {view === VIEWS.password ? (
+        <div style={forgetRowStyle}>
+          <button
+            type="button"
+            style={forgetButtonStyle}
+            onClick={() => handleForget(activeAccount)}
           >
-            <option value="">Select User Type</option>
-            <option value="Student">Student</option>
-            <option value="Admin">Admin</option>
-          </select>
-
-          {message && <p style={messageStyle}>{message}</p>}
-
-          <button onClick={handleLogin} style={buttonStyle} disabled={isLoading}>
-            {isLoading ? "Checking Account..." : "Login"}
+            Remove this account from this device
           </button>
-
-          <Link to="/forgot-password" style={forgotLinkStyle}>
-            Forgot your password?
-          </Link>
+        </div>
+      ) : (
+        <>
+          <div style={dividerStyle} aria-hidden="true">
+            <span style={dividerRuleStyle} />
+            <span style={dividerTextStyle}>New to Scholar Hub?</span>
+            <span style={dividerRuleStyle} />
+          </div>
 
           <Link to="/register" style={registerLinkStyle}>
-            <button type="button" style={registerButtonStyle}>
-              Register
-            </button>
+            <SecondaryButton>Create a student account</SecondaryButton>
           </Link>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </AuthShell>
   );
 };
 
-const loginCardStyle = {
-  ...authCardStyle,
-  width: "430px",
-  maxWidth: "100%",
-  padding: "clamp(22px, 6vw, 34px)",
+const submitLabelStyle = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
-const loginLogoStyle = {
-  ...authLogoStyle,
-  transform: "translateY(26px)",
-};
-
-const brandStyle = {
-  color: colors.primary,
-  textAlign: "center",
-  margin: "0 0 8px",
-};
-
-const subtitleStyle = {
-  ...mutedTextStyle,
-  textAlign: "center",
-  marginBottom: "24px",
-};
-
-const formStackStyle = {
-  display: "grid",
-  gap: "16px",
-};
-
-const authInputStyle = {
-  ...inputStyle,
-  height: "48px",
-  background: "var(--sh-auth-field-bg)",
-};
-
-const passwordFieldStyle = {
-  position: "relative",
-};
-
-const passwordInputStyle = {
-  ...authInputStyle,
-  width: "100%",
-  paddingRight: "48px",
-};
-
-const passwordToggleStyle = {
-  position: "absolute",
-  top: "50%",
-  right: "12px",
-  transform: "translateY(-50%)",
+const forgotRowStyle = {
   display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "4px",
-  background: "transparent",
-  border: "none",
-  borderRadius: "6px",
-  color: colors.primary,
-  cursor: "pointer",
-};
-
-const messageStyle = {
-  margin: 0,
-  padding: "12px 14px",
-  background: "#fee2e2",
-  color: "#b91c1c",
-  border: "1px solid #fecaca",
-  borderRadius: "10px",
-  fontWeight: "700",
-  fontSize: "14px",
-  textAlign: "center",
-};
-
-const buttonStyle = {
-  ...buttonPrimaryStyle,
-  width: "100%",
-  height: "48px",
-  marginTop: "4px",
+  justifyContent: "flex-end",
+  marginTop: "-4px",
 };
 
 const forgotLinkStyle = {
-  color: colors.primary,
+  color: colors.primaryDark,
+  fontSize: "13px",
+  fontWeight: 600,
+};
+
+const pickerNoteStyle = {
+  margin: 0,
+  color: colors.muted,
+  fontSize: "12.5px",
+  lineHeight: 1.5,
   textAlign: "center",
-  fontSize: "14px",
-  fontWeight: "600",
-  textDecoration: "none",
+};
+
+const backButtonStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  marginBottom: "14px",
+  padding: "5px 12px",
+  border: `1px solid ${colors.border}`,
+  borderRadius: "999px",
+  background: colors.surface,
+  color: colors.primaryDark,
+  fontSize: "12.5px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const forgetRowStyle = {
+  display: "flex",
+  justifyContent: "center",
+  marginTop: "16px",
+};
+
+const forgetButtonStyle = {
+  padding: "6px 12px",
+  border: "none",
+  borderRadius: "8px",
+  background: "transparent",
+  color: colors.muted,
+  fontSize: "12.5px",
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+const dividerStyle = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto 1fr",
+  alignItems: "center",
+  gap: "12px",
+  margin: "20px 0 14px",
+};
+
+const dividerRuleStyle = {
+  height: "1px",
+  background: colors.border,
+};
+
+const dividerTextStyle = {
+  color: colors.muted,
+  fontSize: "12.5px",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
 };
 
 const registerLinkStyle = {
   display: "block",
   width: "100%",
-};
-
-const registerButtonStyle = {
-  ...buttonSecondaryStyle,
-  width: "100%",
-  height: "48px",
 };
 
 export default Login;
