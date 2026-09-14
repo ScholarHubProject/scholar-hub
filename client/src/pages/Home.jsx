@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { clearSession, getStoredUser, getUploadUrl } from "../api";
 import { DEFAULT_SETTINGS } from "../settings";
+import { updateSavedAccount } from "../savedAccounts";
 import {
   buttonPrimaryStyle,
   buttonSecondaryStyle,
@@ -11,6 +12,7 @@ import {
   inputStyle,
 } from "../sharedStyles";
 import { AppearanceSettings, Switch, ThemeToggle } from "../components/appearance";
+import { CameraIcon } from "../components/icons";
 import { useSettings } from "../useSettings";
 
 const USER_CHANGED_EVENT = "scholarHubUserChanged";
@@ -31,9 +33,8 @@ const Home = () => {
   const [profileHover, setProfileHover] = useState(false);
   const [hoveredItem, setHoveredItem] = useState(null);
   const [settings, updateSettings] = useSettings();
-  const [selectedAvatar, setSelectedAvatar] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
-  const [avatarMessage, setAvatarMessage] = useState("");
+  const [avatarMessage, setAvatarMessage] = useState(null);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [profileForm, setProfileForm] = useState({
     fullName: "",
@@ -65,6 +66,8 @@ const Home = () => {
     const currentUser = getCurrentUser() || user || {};
     const nextUser = { ...currentUser, ...updates };
     localStorage.setItem("currentUser", JSON.stringify(nextUser));
+    // The login tile for this account shows the same photo and name.
+    updateSavedAccount(nextUser);
     setUser(nextUser);
     window.dispatchEvent(new CustomEvent(USER_CHANGED_EVENT, { detail: nextUser }));
     return nextUser;
@@ -159,65 +162,66 @@ const Home = () => {
     setProfileMessage("");
   };
 
-  const handleAvatarFileChange = (event) => {
-    const file = event.target.files?.[0];
-
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setAvatarMessage("Please choose an image file.");
-      event.target.value = "";
-      return;
-    }
-
-    if (file.size > 3 * 1024 * 1024) {
-      setAvatarMessage("Choose an image under 3 MB.");
-      event.target.value = "";
-      return;
-    }
-
-    setSelectedAvatar(file);
-    setAvatarPreview(URL.createObjectURL(file));
-    setAvatarMessage("Photo selected. Save it to set your avatar.");
-  };
-
-  const handleAvatarUpload = async () => {
-    if (!selectedAvatar || !user) {
-      setAvatarMessage("Choose a photo before saving.");
-      return;
-    }
-
+  // Choosing a photo is uploading it. The old flow previewed the file and
+  // waited for a second "Set Photo" press that most people never found,
+  // so the photo they had just picked vanished when the sheet closed.
+  const uploadAvatar = async (file) => {
     // The server updates whichever account the token identifies, so no id or
     // email is sent with the photo.
     const formData = new FormData();
-    formData.append("avatar", selectedAvatar);
+    formData.append("avatar", file);
 
     setAvatarSaving(true);
-    setAvatarMessage("Saving photo...");
+    setAvatarMessage({ tone: "info", text: "Uploading photo..." });
 
     try {
-      const response = await api.put("/users/avatar", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const response = await api.put("/users/avatar", formData);
       const nextAvatarPath = response.data?.avatarPath;
 
       syncStoredUser({
         avatarPath: nextAvatarPath,
         avatar_path: nextAvatarPath,
       });
-      setSelectedAvatar(null);
       setAvatarPreview("");
-      setAvatarMessage("Profile photo updated.");
-
+      setAvatarMessage({ tone: "success", text: "Profile photo updated." });
+    } catch (error) {
+      console.log("Avatar upload error:", error);
+      // The preview is dropped so the circle goes back to the photo that is
+      // actually saved, rather than showing one that never made it.
+      setAvatarPreview("");
+      setAvatarMessage({
+        tone: "error",
+        text:
+          error.response?.data?.message ||
+          (error.response ? "Unable to save this photo." : "You appear to be offline. Try again."),
+      });
+    } finally {
+      setAvatarSaving(false);
       if (avatarInputRef.current) {
         avatarInputRef.current.value = "";
       }
-    } catch (error) {
-      console.log("Avatar upload error:", error);
-      setAvatarMessage(error.response?.data?.message || "Unable to save this photo.");
-    } finally {
-      setAvatarSaving(false);
     }
+  };
+
+  const handleAvatarFileChange = (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setAvatarMessage({ tone: "error", text: "Please choose an image file." });
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 3 * 1024 * 1024) {
+      setAvatarMessage({ tone: "error", text: "Choose an image under 3 MB." });
+      event.target.value = "";
+      return;
+    }
+
+    setAvatarPreview(URL.createObjectURL(file));
+    uploadAvatar(file);
   };
 
   const handleProfileSave = async () => {
@@ -405,13 +409,29 @@ const Home = () => {
               <>
                 <section style={profileHeroCardStyle}>
                   <div style={profileAvatarStackStyle}>
-                    <div style={profileHeroAvatarStyle}>
-                      {avatarSrc ? (
-                        <img src={avatarSrc} alt="" style={avatarImageStyle} />
-                      ) : (
-                        avatarLetter
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      style={avatarPickerStyle}
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={avatarSaving}
+                      aria-label={avatarSrc ? "Change profile photo" : "Upload profile photo"}
+                    >
+                      <div style={profileHeroAvatarStyle}>
+                        {avatarSrc ? (
+                          <img src={avatarSrc} alt="" style={avatarImageStyle} />
+                        ) : (
+                          avatarLetter
+                        )}
+                        {avatarSaving && (
+                          <span style={avatarBusyOverlayStyle} aria-hidden="true">
+                            <span className="sh-spinner" style={avatarSpinnerStyle} />
+                          </span>
+                        )}
+                      </div>
+                      <span style={avatarCameraBadgeStyle} aria-hidden="true">
+                        <CameraIcon size={13} />
+                      </span>
+                    </button>
                     <input
                       ref={avatarInputRef}
                       type="file"
@@ -429,19 +449,17 @@ const Home = () => {
                         type="button"
                         style={avatarChooseButtonStyle}
                         onClick={() => avatarInputRef.current?.click()}
+                        disabled={avatarSaving}
                       >
-                        Upload Photo
+                        {avatarSaving ? "Uploading..." : avatarSrc ? "Change Photo" : "Upload Photo"}
                       </button>
-                      <button
-                        type="button"
-                        style={avatarSaveButtonStyle(!selectedAvatar || avatarSaving)}
-                        onClick={handleAvatarUpload}
-                        disabled={!selectedAvatar || avatarSaving}
-                      >
-                        {avatarSaving ? "Saving..." : "Set Photo"}
-                      </button>
+                      <span style={avatarHintStyle}>JPG or PNG, under 3 MB.</span>
                     </div>
-                    {avatarMessage && <span style={avatarMessageStyle}>{avatarMessage}</span>}
+                    {avatarMessage && (
+                      <span style={avatarMessageStyle(avatarMessage.tone)} role="status">
+                        {avatarMessage.text}
+                      </span>
+                    )}
                   </div>
                 </section>
 
@@ -949,6 +967,7 @@ const profileAvatarStackStyle = {
 
 const profileHeroAvatarStyle = {
   ...profileAvatarStyle,
+  position: "relative",
   width: "64px",
   height: "64px",
   fontSize: "24px",
@@ -995,25 +1014,70 @@ const avatarActionsStyle = {
   flexWrap: "wrap",
 };
 
+const avatarHintStyle = {
+  color: colors.muted,
+  fontSize: "12px",
+};
+
 const avatarChooseButtonStyle = {
   ...buttonSecondaryStyle,
   padding: "9px 14px",
   fontSize: "13px",
 };
 
-const avatarSaveButtonStyle = (disabled) => ({
-  ...buttonPrimaryStyle,
-  padding: "9px 14px",
-  fontSize: "13px",
-  opacity: disabled ? 0.55 : 1,
-  cursor: disabled ? "not-allowed" : "pointer",
-  boxShadow: disabled ? "none" : buttonPrimaryStyle.boxShadow,
-});
-
-const avatarMessageStyle = {
-  color: colors.muted,
+const avatarMessageStyle = (tone) => ({
+  color:
+    tone === "error"
+      ? "var(--viz-critical-ink)"
+      : tone === "success"
+        ? "var(--viz-good-ink)"
+        : colors.muted,
   fontSize: "12px",
   fontWeight: "700",
+});
+
+// The photo is the button: a camera badge on its lower edge says so, and
+// the whole circle is the click target rather than only the small pill.
+const avatarPickerStyle = {
+  position: "relative",
+  padding: 0,
+  border: "none",
+  background: "transparent",
+  borderRadius: "50%",
+  cursor: "pointer",
+  display: "block",
+};
+
+const avatarCameraBadgeStyle = {
+  position: "absolute",
+  right: "-2px",
+  bottom: "-2px",
+  width: "24px",
+  height: "24px",
+  borderRadius: "50%",
+  display: "grid",
+  placeItems: "center",
+  background: "var(--sh-surface-solid)",
+  color: colors.primaryDark,
+  border: "1px solid var(--sh-glass-border)",
+  boxShadow: "var(--sh-shadow-sm)",
+};
+
+const avatarBusyOverlayStyle = {
+  position: "absolute",
+  inset: 0,
+  borderRadius: "50%",
+  display: "grid",
+  placeItems: "center",
+  background: "rgba(0, 0, 0, 0.38)",
+};
+
+const avatarSpinnerStyle = {
+  width: "22px",
+  height: "22px",
+  borderRadius: "50%",
+  border: "2.5px solid rgba(255, 255, 255, 0.35)",
+  borderTopColor: "#ffffff",
 };
 
 const profileFieldsGridStyle = {

@@ -252,6 +252,13 @@ export const FileIcon = (props) => (
   </Icon>
 );
 
+export const CameraIcon = (props) => (
+  <Icon {...props}>
+    <path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.1-1.7A1 1 0 0 1 9.6 5h4.8a1 1 0 0 1 .8.3L16.3 7h2.2A1.5 1.5 0 0 1 20 8.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 16.5v-8Z" />
+    <circle cx="12" cy="12.5" r="3.2" />
+  </Icon>
+);
+
 export const ScholarshipArt = ({ width = 260 }) => (
   <svg
     width={width}
