@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import api, { getStoredUser } from "../api";
+import { SYNC_CHANNELS, broadcastChange } from "../liveSync";
 import { HeroBanner } from "../components/ui";
 import { FileDropZone } from "../components/fileUpload";
 import { CheckIcon, CrossIcon, FileIcon } from "../components/icons";
@@ -307,6 +308,8 @@ const ApplicationForm = () => {
       });
 
       const response = await api.post("/applications", submission);
+
+      broadcastChange(SYNC_CHANNELS.applications);
 
       const syncedUser = {
         ...user,

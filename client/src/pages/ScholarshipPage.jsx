@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
+import { SYNC_CHANNELS, useLiveSync } from "../liveSync";
+import { useSettings } from "../useSettings";
 import { HeroBanner } from "../components/ui";
 import {
   buttonPrimaryStyle,
@@ -13,8 +15,6 @@ import {
   shellStyle,
   statusPillStyle,
 } from "../sharedStyles";
-
-const AUTO_SYNC_MS = 5000;
 
 const formatDeadline = (deadline) => {
   if (!deadline) return "No deadline set";
@@ -32,6 +32,7 @@ const ScholarshipPage = () => {
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [settings] = useSettings();
   const syncingRef = useRef(false);
 
   const loadScholarships = useCallback(async ({ initial = false, silent = false } = {}) => {
@@ -75,26 +76,15 @@ const ScholarshipPage = () => {
     // because it only checks whether the function contains a setState at all.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadScholarships({ initial: true });
-
-    const intervalId = window.setInterval(() => {
-      loadScholarships({ silent: true });
-    }, AUTO_SYNC_MS);
-
-    const handleFocus = () => {
-      if (document.visibilityState === "visible") {
-        loadScholarships({ silent: true });
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleFocus);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleFocus);
-    };
   }, [loadScholarships]);
+
+  // Polls while visible, re-syncs on focus, and reloads the moment a
+  // scholarship is posted, edited or removed in another tab. Auto-refresh is
+  // the same switch every other page honours.
+  useLiveSync(loadScholarships, {
+    channels: [SYNC_CHANNELS.scholarships, SYNC_CHANNELS.applications],
+    enabled: settings.autoRefresh,
+  });
 
   const handleApply = (scholarship) => {
     navigate(

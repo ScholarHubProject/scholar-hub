@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "../api";
+import { SYNC_CHANNELS, broadcastChange } from "../liveSync";
 import { HeroBanner } from "../components/ui";
 import {
   buttonDangerStyle,
@@ -49,11 +50,15 @@ const ManageScholarship = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
+  const noticeTimerRef = useRef(null);
 
   const showNotice = (type, message) => {
+    window.clearTimeout(noticeTimerRef.current);
     setNotice({ type, message });
-    setTimeout(() => setNotice(null), 3000);
+    noticeTimerRef.current = window.setTimeout(() => setNotice(null), 3000);
   };
+
+  useEffect(() => () => window.clearTimeout(noticeTimerRef.current), []);
 
   const loadScholarships = async () => {
     setLoading(true);
@@ -128,6 +133,8 @@ const ManageScholarship = () => {
       }
 
       resetForm();
+      // The student-facing list and both dashboards keep their own copies.
+      broadcastChange(SYNC_CHANNELS.scholarships);
       loadScholarships();
     } catch (error) {
       console.log("Scholarship save error:", error);
@@ -169,6 +176,7 @@ const ManageScholarship = () => {
     try {
       await api.delete(`/scholarships/${id}`);
       showNotice("success", "Scholarship deleted successfully");
+      broadcastChange(SYNC_CHANNELS.scholarships);
       loadScholarships();
     } catch (error) {
       console.log("Scholarship delete error:", error);

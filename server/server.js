@@ -524,6 +524,13 @@ const createZipArchive = (files) => {
 // Date objects, so a deadline never shifts a day from timezone conversion.
 types.setTypeParser(1082, (value) => value);
 
+// Every TIMESTAMP column (no zone) holds UTC wall-clock time: CURRENT_TIMESTAMP
+// comes from a UTC database session and the API pins user-entered times to
+// UTC before writing. pg's default parser reads them in the *process* zone,
+// which is fine on Netlify (UTC) but shifted a dev machine's created_at and
+// publish_at by its whole offset. Tag the text as UTC before parsing instead.
+types.setTypeParser(1114, (value) => (value ? new Date(`${value.replace(" ", "T")}Z`) : null));
+
 const pool = new Pool(dbConfig);
 
 pool.on("error", (err) => {
@@ -2472,6 +2479,10 @@ const getAnnouncements = (req, res) => {
 
     const now = Date.now();
 
+    // Polled every few seconds by the announcements page. A cached copy from
+    // the browser or the CDN would be exactly the stale list being polled to
+    // get rid of.
+    res.setHeader("Cache-Control", "no-store");
     res.json(
       rows.map((row) => ({
         ...row,
@@ -3917,6 +3928,8 @@ const getNotifications = async (req, res) => {
   try {
     const items = await loadNotificationFeed(req.user);
 
+    // Polled by the bell and the notifications page; never serve it from cache.
+    res.setHeader("Cache-Control", "no-store");
     return res.json({
       notifications: items,
       unreadCount: items.filter((item) => !item.read).length,

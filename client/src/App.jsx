@@ -21,6 +21,7 @@ import ManageUsers from "./pages/ManageUsers";
 import AuditLog from "./pages/AuditLog";
 import ScholarshipPage from "./pages/ScholarshipPage";
 import TrackStatus from "./pages/TrackStatus";
+import QrCode from "./pages/QrCode";
 import { getSavedSettings } from "./settings";
 import { clearSession, getStoredUser, isLoggedIn } from "./api";
 
@@ -102,6 +103,7 @@ function App() {
     "/forgot-password",
     "/reset-password",
     "/verify-email",
+    "/qr",
   ].includes(location.pathname);
 
   return (
@@ -126,6 +128,7 @@ function App() {
         {/* Public: the confirmation link is opened from an inbox, often on a
             device that has never signed in here. */}
         <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/qr" element={<QrCode />} />
 
         <Route
           path="/student-dashboard"

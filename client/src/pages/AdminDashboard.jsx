@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api";
+import { SYNC_CHANNELS, useLiveSync } from "../liveSync";
 import { getSavedSettings, subscribeToSettings } from "../settings";
 import {
   BarListChart,
@@ -139,23 +140,14 @@ const AdminDashboard = () => {
     Promise.resolve().then(() => loadAnalytics({ initial: true }));
   }, [loadAnalytics]);
 
-  useEffect(() => {
-    if (!settings.autoRefresh) return undefined;
-
-    const intervalId = window.setInterval(() => loadAnalytics({ silent: true }), AUTO_SYNC_MS);
-    const handleFocus = () => {
-      if (document.visibilityState === "visible") loadAnalytics({ silent: true });
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleFocus);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleFocus);
-    };
-  }, [loadAnalytics, settings.autoRefresh]);
+  // The figures move when an application is decided or a scholarship
+  // changes, so those broadcasts refresh immediately; the tick covers
+  // everything written from another browser.
+  useLiveSync(loadAnalytics, {
+    channels: [SYNC_CHANNELS.applications, SYNC_CHANNELS.scholarships],
+    intervalMs: AUTO_SYNC_MS,
+    enabled: settings.autoRefresh,
+  });
 
   const { summary, charts, documents, filterOptions } = data;
 

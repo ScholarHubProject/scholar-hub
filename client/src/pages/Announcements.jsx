@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api from "../api";
 import { HeroBanner } from "../components/ui";
+import { SYNC_CHANNELS, broadcastChange, useLiveSync } from "../liveSync";
+import { useSettings } from "../useSettings";
 import {
   buttonDangerStyle,
   buttonPrimaryStyle,
@@ -50,6 +52,23 @@ const toLocalInputValue = (value) => {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 };
 
+// The reverse trip. "2026-09-15T10:00" from the input has no zone, and the
+// API runs in UTC, so it has to be pinned to the admin's clock here or a
+// 10:00 announcement in Manila would go out at 18:00.
+const toApiTimestamp = (value) => {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+};
+
+const toApiPayload = (formData) => ({
+  ...formData,
+  publishAt: toApiTimestamp(formData.publishAt),
+  expiresAt: toApiTimestamp(formData.expiresAt),
+});
+
 const WINDOW_TONES = {
   Live: { background: "var(--viz-good-wash)", color: "var(--viz-good-ink)", borderColor: "var(--viz-good-line)" },
   Scheduled: { background: "var(--viz-info-wash)", color: "var(--viz-info-ink)", borderColor: "var(--viz-info-line)" },
@@ -65,29 +84,72 @@ const Announcements = () => {
   const [viewingAnnouncement, setViewingAnnouncement] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState(null);
+  const [settings] = useSettings();
+  // Every request takes a number and only the newest one may write the list.
+  // A write bumps it too, so a poll that left before the insert cannot come
+  // back afterwards and overwrite the row that was just added.
+  const requestRef = useRef(0);
 
   // State is only set from the promise callbacks. `loading` already starts as
   // true, so setting it again on mount would just queue a redundant render
-  // while the effect is still running.
-  const loadAnnouncements = useCallback(
-    () =>
-      api
-        .get("/announcements")
-        .then((response) => {
-          setAnnouncements(Array.isArray(response.data) ? response.data : []);
-          setNotice(null);
-        })
-        .catch((error) => {
-          console.log("Announcements load error:", error);
+  // while the effect is still running. A silent sync leaves the notice alone
+  // so "Announcement posted successfully" is not wiped by the next tick; the
+  // initial load is not silent about a failure, or an empty page would be the
+  // only sign that the request never came back.
+  const loadAnnouncements = useCallback(({ silent = false, initial = false } = {}) => {
+    const requestId = requestRef.current + 1;
+    requestRef.current = requestId;
+
+    if (!silent && !initial) setSyncing(true);
+
+    return api
+      .get("/announcements")
+      .then((response) => {
+        if (requestId !== requestRef.current) return;
+        setAnnouncements(Array.isArray(response.data) ? response.data : []);
+        setLastSynced(new Date());
+        if (!silent) setNotice(null);
+      })
+      .catch((error) => {
+        console.log("Announcements load error:", error);
+        if (requestId === requestRef.current && !silent) {
           setNotice("Failed to load announcements");
-        })
-        .finally(() => setLoading(false)),
-    []
-  );
+        }
+      })
+      .finally(() => {
+        if (requestId === requestRef.current) {
+          setLoading(false);
+          setSyncing(false);
+        }
+      });
+  }, []);
 
   useEffect(() => {
-    loadAnnouncements();
+    // With initial: true nothing is set synchronously here: `loading` already
+    // starts as true and every other update waits for the response. The rule
+    // only sees that the function contains a setState somewhere.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadAnnouncements({ initial: true });
   }, [loadAnnouncements]);
+
+  // Other admins' posts, and scheduled ones crossing their publish time, show
+  // up on their own. Auto-refresh is the same switch the bell honours.
+  useLiveSync(loadAnnouncements, {
+    channels: [SYNC_CHANNELS.announcements],
+    enabled: settings.autoRefresh,
+  });
+
+  // The list is patched locally first so the change is on screen before the
+  // round trip, then reloaded so it carries what the server filled in
+  // (created_by, the stored timestamps) and every other tab is told.
+  const settleChange = () => {
+    requestRef.current += 1;
+    broadcastChange(SYNC_CHANNELS.announcements);
+    broadcastChange(SYNC_CHANNELS.notifications);
+    loadAnnouncements({ silent: true });
+  };
 
   const updateField = (field, value) => {
     setFormData((current) => ({
@@ -111,7 +173,10 @@ const Announcements = () => {
       const wasEditing = Boolean(editingAnnouncement);
 
       if (editingAnnouncement) {
-        const response = await api.put(`/announcements/${editingAnnouncement.id}`, formData);
+        const response = await api.put(
+          `/announcements/${editingAnnouncement.id}`,
+          toApiPayload(formData)
+        );
         const updatedAnnouncement = response.data?.announcement || {
           id: editingAnnouncement.id,
           title: formData.title.trim() || "Announcement",
@@ -130,7 +195,7 @@ const Announcements = () => {
           )
         );
       } else {
-        const response = await api.post("/announcements", formData);
+        const response = await api.post("/announcements", toApiPayload(formData));
         const createdAnnouncement = response.data?.announcement || {
           id: Date.now(),
           title: formData.title.trim() || "Announcement",
@@ -153,6 +218,7 @@ const Announcements = () => {
           ? "Announcement updated successfully"
           : "Announcement posted successfully"
       );
+      settleChange();
     } catch (error) {
       console.log("Announcement post error:", error);
       setNotice(
@@ -213,6 +279,7 @@ const Announcements = () => {
 
       setViewingAnnouncement(null);
       setNotice("Announcement deleted");
+      settleChange();
     } catch (error) {
       console.log("Announcement delete error:", error);
       setNotice(error.response?.data?.message || "Failed to delete announcement");
@@ -228,6 +295,18 @@ const Announcements = () => {
           eyebrow="Campus updates"
           title="Announcements"
           subtitle="Post scholarship announcements and reminders, and see everything students are being told in one place."
+          actions={
+            <>
+              <span style={liveBadgeStyle}>
+                {syncing ? "Syncing…" : settings.autoRefresh ? "Live" : "Auto-refresh off"}
+              </span>
+              <span style={metaLineStyle}>
+                {lastSynced
+                  ? `Last synced ${lastSynced.toLocaleTimeString()}`
+                  : "Waiting for first sync…"}
+              </span>
+            </>
+          }
         />
 
         {notice && <div style={noticeStyle}>{notice}</div>}
@@ -307,7 +386,12 @@ const Announcements = () => {
                   Cancel Edit
                 </button>
               )}
-              <button type="button" style={buttonSecondaryStyle} onClick={loadAnnouncements} disabled={loading}>
+              <button
+                type="button"
+                style={buttonSecondaryStyle}
+                onClick={() => loadAnnouncements()}
+                disabled={loading || syncing}
+              >
                 Refresh
               </button>
             </div>
@@ -583,6 +667,16 @@ const closeButtonStyle = {
   fontWeight: "800",
   lineHeight: 1,
   cursor: "pointer",
+};
+
+const liveBadgeStyle = {
+  ...eyebrowStyle,
+  marginBottom: 0,
+};
+
+const metaLineStyle = {
+  ...mutedTextStyle,
+  fontSize: "12.5px",
 };
 
 const noticeStyle = {

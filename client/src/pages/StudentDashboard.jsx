@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { getStoredUser } from "../api";
 import { getSavedSettings, subscribeToSettings } from "../settings";
+import { SYNC_CHANNELS, useLiveSync } from "../liveSync";
 import { Meter, MiniTrendChart } from "../components/charts";
 import {
   STATUS_TONES,
@@ -171,23 +172,18 @@ const StudentDashboard = () => {
     Promise.resolve().then(() => loadDashboard({ initial: true }));
   }, [loadDashboard]);
 
-  useEffect(() => {
-    if (!settings.autoRefresh) return undefined;
-
-    const intervalId = window.setInterval(() => loadDashboard({ silent: true }), AUTO_SYNC_MS);
-    const handleFocus = () => {
-      if (document.visibilityState === "visible") loadDashboard({ silent: true });
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleFocus);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleFocus);
-    };
-  }, [loadDashboard, settings.autoRefresh]);
+  // The slow tick is enough for the numbers; an application decided or an
+  // announcement posted in another tab still lands immediately through the
+  // broadcast.
+  useLiveSync(loadDashboard, {
+    channels: [
+      SYNC_CHANNELS.applications,
+      SYNC_CHANNELS.announcements,
+      SYNC_CHANNELS.scholarships,
+    ],
+    intervalMs: AUTO_SYNC_MS,
+    enabled: settings.autoRefresh,
+  });
 
   useEffect(() => {
     const syncUserFromStorage = () => setUser(getCurrentUser());

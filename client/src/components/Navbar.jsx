@@ -15,6 +15,7 @@ import {
 import { AppearanceSettings, Switch, ThemeToggle } from "./appearance";
 import { CameraIcon } from "./icons";
 import { useSettings } from "../useSettings";
+import { SYNC_CHANNELS, useLiveSync } from "../liveSync";
 
 const USER_CHANGED_EVENT = "scholarHubUserChanged";
 
@@ -65,6 +66,7 @@ const adminLinks = [
   { label: "Manage Applicants", to: "/manage-applicants" },
   { label: "Reports", to: "/reports" },
   { label: "Announcements", to: "/announcements" },
+  { label: "QR Code", to: "/qr" },
   { label: "Manage Accounts", to: "/manage-users" },
   { label: "Audit Trail", to: "/audit-log" },
   { label: "Notifications", to: "/notifications" },
@@ -330,28 +332,28 @@ const Navbar = () => {
   useEffect(() => {
     Promise.resolve().then(() => loadNotifications());
 
-    const intervalId = settings.autoRefresh
-      ? window.setInterval(() => loadNotifications({ showLoading: false }), 5000)
-      : null;
-
-    const refreshVisibleNotifications = () => {
-      if (document.visibilityState === "visible") {
-        loadNotifications({ showLoading: false });
-      }
-    };
-
-    window.addEventListener("focus", refreshVisibleNotifications);
-    document.addEventListener("visibilitychange", refreshVisibleNotifications);
-
     return () => {
       notificationsRequestRef.current += 1;
-      if (intervalId) {
-        window.clearInterval(intervalId);
-      }
-      window.removeEventListener("focus", refreshVisibleNotifications);
-      document.removeEventListener("visibilitychange", refreshVisibleNotifications);
     };
-  }, [loadNotifications, settings.autoRefresh]);
+  }, [loadNotifications]);
+
+  // The bell polls, re-syncs on focus, and updates the moment anything it
+  // lists is written in another tab - an announcement posted, an application
+  // decided, a notification marked read on the notifications page.
+  const syncNotifications = useCallback(
+    () => loadNotifications({ showLoading: false }),
+    [loadNotifications]
+  );
+
+  useLiveSync(syncNotifications, {
+    channels: [
+      SYNC_CHANNELS.notifications,
+      SYNC_CHANNELS.announcements,
+      SYNC_CHANNELS.applications,
+    ],
+    // Nothing to poll for on the sign-in pages.
+    enabled: settings.autoRefresh && Boolean(userRole),
+  });
 
   const handleLogout = () => {
     clearSession();

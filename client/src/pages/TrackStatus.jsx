@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import api, { getApplicationFileUrl, getStoredUser } from "../api";
+import { SYNC_CHANNELS, broadcastChange, useLiveSync } from "../liveSync";
+import { useSettings } from "../useSettings";
 import { HeroBanner } from "../components/ui";
 import { FileDropZone } from "../components/fileUpload";
 import {
@@ -17,7 +19,6 @@ import {
   statusPillStyle,
 } from "../sharedStyles";
 
-const AUTO_SYNC_MS = 5000;
 
 const getCurrentUser = () => {
   try {
@@ -136,6 +137,7 @@ const TrackStatus = () => {
   const [withdrawing, setWithdrawing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [removingPath, setRemovingPath] = useState(null);
+  const [settings] = useSettings();
   const syncingRef = useRef(false);
   const fileInputRef = useRef(null);
 
@@ -190,26 +192,15 @@ const TrackStatus = () => {
     // because it only checks whether the function contains a setState at all.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadApplications({ initial: true });
-
-    const intervalId = window.setInterval(() => {
-      loadApplications({ silent: true });
-    }, AUTO_SYNC_MS);
-
-    const handleFocus = () => {
-      if (document.visibilityState === "visible") {
-        loadApplications({ silent: true });
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleFocus);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleFocus);
-    };
   }, [loadApplications]);
+
+  // Polls while visible, re-syncs on focus, and reloads the moment an
+  // application is decided in another tab. Auto-refresh is the same switch
+  // the dashboard and the bell honour.
+  useLiveSync(loadApplications, {
+    channels: [SYNC_CHANNELS.applications],
+    enabled: settings.autoRefresh,
+  });
 
   // The open dialog holds its own copy of the application, so a change has to
   // be written to both it and the list or the dialog keeps showing the file it
@@ -244,6 +235,8 @@ const TrackStatus = () => {
       const response = await api.post(`/applications/${application.id}/withdraw`, {
         reason: reason || "",
       });
+
+      broadcastChange(SYNC_CHANNELS.applications);
 
       applyServerCopy(application.id, {
         status: "Withdrawn",

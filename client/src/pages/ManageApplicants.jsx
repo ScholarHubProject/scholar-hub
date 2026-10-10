@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AcademicRecordDialog from "../components/AcademicRecordDialog";
 import api, { getApplicationArchiveUrl } from "../api";
+import { SYNC_CHANNELS, broadcastChange, useLiveSync } from "../liveSync";
+import { useSettings } from "../useSettings";
 import {
   buttonDangerStyle,
   buttonPrimaryStyle,
@@ -178,22 +180,36 @@ const ManageApplicants = () => {
     pending: 0,
     rejected: 0,
   });
+  const [settings] = useSettings();
+  // Every request takes a number and only the newest one may write the list,
+  // so a slow page-2 response cannot land on top of page 3, and a poll that
+  // left before a decision cannot bring the old status back afterwards.
+  const requestRef = useRef(0);
+  const noticeTimerRef = useRef(null);
 
   const showNotice = (type, message) => {
+    window.clearTimeout(noticeTimerRef.current);
     setNotice({ type, message });
-    setTimeout(() => setNotice(null), 3000);
+    noticeTimerRef.current = window.setTimeout(() => setNotice(null), 3000);
   };
+
+  useEffect(() => () => window.clearTimeout(noticeTimerRef.current), []);
 
   // State is only touched from the promise callbacks, never synchronously in
   // the effect body, so a render is not triggered during the effect itself.
+  // A silent sync keeps whatever notice is showing; a failed background poll
+  // is not worth replacing "Application approved successfully" with.
   const loadApplications = useCallback(
-    (isActive = () => true) =>
-      api
+    ({ silent = false } = {}) => {
+      const requestId = requestRef.current + 1;
+      requestRef.current = requestId;
+
+      return api
         .get("/applications", {
           params: { search, status: statusFilter, page, pageSize: PAGE_SIZE },
         })
         .then((response) => {
-          if (!isActive()) return;
+          if (requestId !== requestRef.current) return;
 
           setApplications(response.data.applications || []);
           setTotals({
@@ -205,25 +221,31 @@ const ManageApplicants = () => {
         })
         .catch((error) => {
           console.log("Applications load error:", error);
-          if (isActive()) {
+          if (requestId === requestRef.current && !silent) {
             setNotice({ type: "error", message: "Failed to load applications" });
           }
         })
         .finally(() => {
-          if (isActive()) setLoading(false);
-        }),
+          if (requestId === requestRef.current) setLoading(false);
+        });
+    },
     [search, statusFilter, page]
   );
 
   useEffect(() => {
-    let active = true;
-
-    loadApplications(() => active);
+    loadApplications();
 
     return () => {
-      active = false;
+      requestRef.current += 1;
     };
   }, [loadApplications]);
+
+  // New submissions and withdrawals arrive on their own: on the tick while the
+  // tab is visible, on focus, and immediately from another tab of this browser.
+  useLiveSync(loadApplications, {
+    channels: [SYNC_CHANNELS.applications],
+    enabled: settings.autoRefresh,
+  });
 
   // Debounced so typing does not fire a request per keystroke.
   useEffect(() => {
@@ -246,6 +268,7 @@ const ManageApplicants = () => {
       });
 
       showNotice("success", `Application ${status.toLowerCase()} successfully`);
+      broadcastChange(SYNC_CHANNELS.applications);
       loadApplications();
     } catch (error) {
       console.log("Application status update error:", error);
@@ -283,6 +306,7 @@ const ManageApplicants = () => {
       await api.delete(`/applications/${pendingDelete.id}`);
       showNotice("success", "Application entry deleted successfully");
       setPendingDelete(null);
+      broadcastChange(SYNC_CHANNELS.applications);
       loadApplications();
     } catch (error) {
       console.log("Application delete error:", error);
@@ -453,7 +477,7 @@ const ManageApplicants = () => {
             >
               Export Applicant List
             </button>
-            <button type="button" style={buttonSecondaryStyle} onClick={loadApplications}>
+            <button type="button" style={buttonSecondaryStyle} onClick={() => loadApplications()}>
               Refresh
             </button>
           </div>

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import api, { getStoredUser } from "../api";
 import { HeroBanner } from "../components/ui";
+import { SYNC_CHANNELS, broadcastChange, useLiveSync } from "../liveSync";
+import { useSettings } from "../useSettings";
 import {
   buttonPrimaryStyle,
   buttonSecondaryStyle,
@@ -12,8 +14,6 @@ import {
   shellStyle,
   statusPillStyle,
 } from "../sharedStyles";
-
-const AUTO_SYNC_MS = 5000;
 
 const getCurrentUser = () => {
   try {
@@ -49,21 +49,29 @@ const Notifications = () => {
   const [notice, setNotice] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [marking, setMarking] = useState(false);
-  const syncingRef = useRef(false);
+  const [settings] = useSettings();
+  // Every request takes a number and only the newest one may write the list.
+  // Marking something read bumps it too, so a poll that left before the write
+  // cannot come back afterwards and flip the card back to unread.
+  const requestRef = useRef(0);
 
   const loadNotifications = useCallback(async ({ initial = false, silent = false } = {}) => {
-    if (syncingRef.current) return;
-    syncingRef.current = true;
+    const requestId = requestRef.current + 1;
+    requestRef.current = requestId;
 
     // The mount call sets nothing synchronously: `loading` already starts as
     // true and `refreshing` as false, so touching them here would only queue
-    // a redundant render while the effect is still running.
-    if (!initial) {
+    // a redundant render while the effect is still running. A silent
+    // background sync leaves the badge alone as well, or it would flash
+    // "Syncing…" every few seconds.
+    if (!initial && !silent) {
       setRefreshing(true);
     }
 
     try {
       const response = await api.get("/notifications");
+
+      if (requestId !== requestRef.current) return;
 
       setItems(
         Array.isArray(response.data?.notifications) ? response.data.notifications : []
@@ -73,13 +81,14 @@ const Notifications = () => {
       setLastUpdated(new Date());
     } catch (error) {
       console.log("Notifications load error:", error);
-      if (!silent) {
+      if (!silent && requestId === requestRef.current) {
         setNotice("Failed to load notifications");
       }
     } finally {
-      syncingRef.current = false;
-      setLoading(false);
-      setRefreshing(false);
+      if (requestId === requestRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
@@ -89,26 +98,19 @@ const Notifications = () => {
     // because it only checks whether the function contains a setState at all.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadNotifications({ initial: true });
-
-    const intervalId = window.setInterval(() => {
-      loadNotifications({ silent: true });
-    }, AUTO_SYNC_MS);
-
-    const handleFocus = () => {
-      if (document.visibilityState === "visible") {
-        loadNotifications({ silent: true });
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleFocus);
-
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleFocus);
-    };
   }, [loadNotifications]);
+
+  // Polls while visible, re-syncs on focus, and reloads the instant an admin
+  // posts an announcement or decides an application in another tab. An older
+  // sync still in flight is discarded by the request number above.
+  useLiveSync(loadNotifications, {
+    channels: [
+      SYNC_CHANNELS.notifications,
+      SYNC_CHANNELS.announcements,
+      SYNC_CHANNELS.applications,
+    ],
+    enabled: settings.autoRefresh,
+  });
 
   // Marked optimistically. The request is cheap and idempotent, and a card that
   // stays highlighted for half a second after being read is more jarring than a
@@ -116,6 +118,9 @@ const Notifications = () => {
   const markRead = async (keys) => {
     if (keys.length === 0) return;
 
+    // Whatever poll is in flight predates this click; its answer must not
+    // overwrite the optimistic state below.
+    requestRef.current += 1;
     setItems((current) =>
       current.map((item) => (keys.includes(item.key) ? { ...item, read: true } : item))
     );
@@ -123,6 +128,8 @@ const Notifications = () => {
 
     try {
       await api.post("/notifications/read", { keys });
+      // The bell in the navbar keeps its own copy of the unread count.
+      broadcastChange(SYNC_CHANNELS.notifications);
     } catch (error) {
       console.log("Notification read error:", error);
       loadNotifications({ silent: true });
@@ -134,8 +141,10 @@ const Notifications = () => {
 
     try {
       const response = await api.post("/notifications/read-all");
+      requestRef.current += 1;
       setItems((current) => current.map((item) => ({ ...item, read: true })));
       setUnreadCount(response.data?.unreadCount || 0);
+      broadcastChange(SYNC_CHANNELS.notifications);
     } catch (error) {
       console.log("Notification read-all error:", error);
       setNotice("Could not mark those as read. Please try again.");
