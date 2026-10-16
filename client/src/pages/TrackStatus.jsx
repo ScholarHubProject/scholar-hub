@@ -4,6 +4,8 @@ import { SYNC_CHANNELS, broadcastChange, useLiveSync } from "../liveSync";
 import { useSettings } from "../useSettings";
 import { HeroBanner } from "../components/ui";
 import { FileDropZone } from "../components/fileUpload";
+import { RenewIcon } from "../components/icons";
+import ApplicationProgress from "../components/ApplicationProgress";
 import {
   buttonDangerStyle,
   buttonPrimaryStyle,
@@ -137,6 +139,9 @@ const TrackStatus = () => {
   const [withdrawing, setWithdrawing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [removingPath, setRemovingPath] = useState(null);
+  // Which single refresh button is spinning: "<applicationId>:card" for a
+  // card, "<applicationId>:<step title>" for a step in the progress list.
+  const [refreshingKey, setRefreshingKey] = useState(null);
   const [settings] = useSettings();
   const syncingRef = useRef(false);
   const fileInputRef = useRef(null);
@@ -169,7 +174,13 @@ const TrackStatus = () => {
         // token, so an email here would be ignored anyway.
         const response = await api.get("/applications/student");
 
-        setApplications(Array.isArray(response.data) ? response.data : []);
+        const rows = Array.isArray(response.data) ? response.data : [];
+        setApplications(rows);
+        // The open dialog holds its own copy, so without this a live sync
+        // would update the cards while the progress list stayed stale.
+        setSelectedApplication((current) =>
+          current ? rows.find((row) => row.id === current.id) || current : current
+        );
         setError("");
         setLastUpdated(new Date());
       } catch (requestError) {
@@ -201,6 +212,65 @@ const TrackStatus = () => {
     channels: [SYNC_CHANNELS.applications],
     enabled: settings.autoRefresh,
   });
+
+  // Refreshes one application — a card or a single progress step — without
+  // the whole page going into its syncing state. The server only lists a
+  // student's applications as a set, so the set is fetched and just this row
+  // is taken from it.
+  const refreshApplication = async (applicationId, key) => {
+    if (refreshingKey) return;
+
+    setRefreshingKey(key);
+    setActionNotice(null);
+
+    try {
+      const response = await api.get("/applications/student");
+      const rows = Array.isArray(response.data) ? response.data : [];
+      const fresh = rows.find((row) => row.id === applicationId);
+
+      setApplications(rows);
+      setLastUpdated(new Date());
+
+      if (fresh) {
+        setSelectedApplication((current) =>
+          current && current.id === applicationId ? fresh : current
+        );
+      } else {
+        setSelectedApplication((current) =>
+          current && current.id === applicationId ? null : current
+        );
+        setActionNotice({
+          tone: "error",
+          text: "That application is no longer on your account.",
+        });
+      }
+    } catch (requestError) {
+      console.log("Application refresh error:", requestError);
+      setActionNotice({
+        tone: "error",
+        text: "Unable to refresh that application. Please try again.",
+      });
+    } finally {
+      setRefreshingKey(null);
+    }
+  };
+
+  const renderRefreshButton = (applicationId, key, label) => {
+    const spinning = refreshingKey === key;
+
+    return (
+      <button
+        type="button"
+        aria-label={label}
+        title={label}
+        style={refreshIconButtonStyle}
+        onClick={() => refreshApplication(applicationId, key)}
+        disabled={Boolean(refreshingKey) || refreshing}
+      >
+        <RenewIcon size={15} className={spinning ? "sh-spinner" : undefined} />
+      </button>
+    );
+  };
 
   // The open dialog holds its own copy of the application, so a change has to
   // be written to both it and the list or the dialog keeps showing the file it
@@ -329,7 +399,6 @@ const TrackStatus = () => {
           subtitle="Follow every application you have submitted and the approval updates the office has posted against it."
           actions={
             <>
-              <span style={statusBadgeStyle}>{refreshing ? "Syncing…" : "Live"}</span>
               <span style={updatedTextStyle}>
                 {lastUpdated
                   ? `Last synced ${lastUpdated.toLocaleTimeString()}`
@@ -366,8 +435,16 @@ const TrackStatus = () => {
           <section style={cardGridStyle}>
             {applications.map((application) => (
               <article key={application.id} style={applicationCardStyle}>
-                <span style={statusPillStyle}>{application.status}</span>
+                <div style={cardTopRowStyle}>
+                  <span style={statusPillStyle}>{application.status}</span>
+                  {renderRefreshButton(
+                    application.id,
+                    `${application.id}:card`,
+                    `Refresh ${application.scholarship_title}`
+                  )}
+                </div>
                 <h3 style={cardTitleStyle}>{application.scholarship_title}</h3>
+                <ApplicationProgress application={application} compact />
                 <p style={mutedTextStyle}>
                   <strong>Application No:</strong> SCH-{String(application.id).padStart(4, "0")}
                 </p>
@@ -463,7 +540,14 @@ const TrackStatus = () => {
               </div>
 
               <div style={progressSectionStyle}>
-                <h3 style={sectionTitleStyle}>In Progress</h3>
+                <div style={progressTitleRowStyle}>
+                  <h3 style={sectionTitleStyle}>In Progress</h3>
+                  {renderRefreshButton(
+                    selectedApplication.id,
+                    `${selectedApplication.id}:progress`,
+                    "Refresh application progress"
+                  )}
+                </div>
                 <div style={progressListStyle}>
                   {getProgressSteps(selectedApplication).map((step, stepIndex, steps) => (
                     <div key={step.title} style={progressItemStyle}>
@@ -480,6 +564,12 @@ const TrackStatus = () => {
                           <strong style={getProgressTitleStyle(step.state)}>
                             {step.title}
                           </strong>
+                          <span style={stepActionsStyle}>
+                          {renderRefreshButton(
+                            selectedApplication.id,
+                            `${selectedApplication.id}:${step.title}`,
+                            `Refresh ${step.title}`
+                          )}
                           {step.type === "applicationForm" && (
                             <button
                               type="button"
@@ -513,6 +603,7 @@ const TrackStatus = () => {
                               <span aria-hidden="true" style={getDocumentArrowStyle(documentsOpen)} />
                             </button>
                           )}
+                          </span>
                         </div>
                         <p style={progressDescriptionStyle}>{step.description}</p>
                         {step.type === "applicationForm" && applicationFormOpen && (
@@ -663,6 +754,34 @@ const applicationCardStyle = {
   ...cardStyle,
   display: "grid",
   gap: "12px",
+};
+
+const cardTopRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "10px",
+};
+
+const stepActionsStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "6px",
+  marginLeft: "auto",
+};
+
+const refreshIconButtonStyle = {
+  display: "grid",
+  placeItems: "center",
+  width: "28px",
+  height: "28px",
+  padding: 0,
+  borderRadius: "999px",
+  border: `1px solid ${colors.border}`,
+  background: colors.surface,
+  color: colors.primaryDark,
+  cursor: "pointer",
+  flex: "0 0 auto",
 };
 
 const cardActionsStyle = {
@@ -948,11 +1067,6 @@ const errorTextStyle = {
   margin: 0,
   color: colors.danger,
   fontWeight: "700",
-};
-
-const statusBadgeStyle = {
-  ...eyebrowStyle,
-  marginBottom: 0,
 };
 
 const updatedTextStyle = {

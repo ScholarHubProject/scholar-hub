@@ -4,8 +4,10 @@ import api from "../api";
 import { SYNC_CHANNELS, useLiveSync } from "../liveSync";
 import { useSettings } from "../useSettings";
 import { HeroBanner } from "../components/ui";
+import { SCHOLARSHIP_CATEGORIES, getScholarshipCategory } from "../scholarshipCategories";
 import {
   buttonPrimaryStyle,
+  inputStyle,
   buttonSecondaryStyle,
   cardStyle,
   colors,
@@ -25,9 +27,30 @@ const formatDeadline = (deadline) => {
   });
 };
 
+const formatPostedDate = (date) => {
+  if (!date) return "Not recorded";
+  return new Date(date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
+// The same rule the server uses when the application is filed: anyone who has
+// applied to this scholarship before is renewing, so they are an old scholar.
+const isOldScholarFor = (scholarship, applications) =>
+  applications.some(
+    (application) =>
+      (application.scholarship_id != null &&
+        Number(application.scholarship_id) === Number(scholarship.id)) ||
+      (application.scholarship_id == null && application.scholarship_title === scholarship.title)
+  );
+
 const ScholarshipPage = () => {
   const navigate = useNavigate();
   const [scholarships, setScholarships] = useState([]);
+  const [myApplications, setMyApplications] = useState([]);
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -54,8 +77,16 @@ const ScholarshipPage = () => {
     }
 
     try {
-      const response = await api.get("/scholarships");
+      // The applications only decide the New/Old badge, so if they fail to
+      // load the scholarships still show, every one marked as new.
+      const [response, applicationsResponse] = await Promise.all([
+        api.get("/scholarships"),
+        api.get("/applications/student").catch(() => null),
+      ]);
       setScholarships(Array.isArray(response.data) ? response.data : []);
+      if (applicationsResponse && Array.isArray(applicationsResponse.data)) {
+        setMyApplications(applicationsResponse.data);
+      }
       setError("");
       setLastUpdated(new Date());
     } catch (requestError) {
@@ -94,6 +125,10 @@ const ScholarshipPage = () => {
     );
   };
 
+  const visibleScholarships = categoryFilter
+    ? scholarships.filter((scholarship) => getScholarshipCategory(scholarship) === categoryFilter)
+    : scholarships;
+
   return (
     <div style={pageStyle}>
       <main style={shellStyle}>
@@ -121,6 +156,30 @@ const ScholarshipPage = () => {
           }
         />
 
+        <section style={filterBarStyle}>
+          <label htmlFor="scholarship-category" style={filterLabelStyle}>
+            Scholarship type
+          </label>
+          <select
+            id="scholarship-category"
+            style={filterSelectStyle}
+            value={categoryFilter}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+          >
+            <option value="">All scholarships</option>
+            {SCHOLARSHIP_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
+          {!loading && !error && (
+            <span style={updatedTextStyle}>
+              Showing {visibleScholarships.length} of {scholarships.length}
+            </span>
+          )}
+        </section>
+
         {loading ? (
           <div style={stateCardStyle}>Loading scholarships...</div>
         ) : error ? (
@@ -132,13 +191,21 @@ const ScholarshipPage = () => {
           </div>
         ) : scholarships.length === 0 ? (
           <div style={stateCardStyle}>No scholarships are available right now.</div>
+        ) : visibleScholarships.length === 0 ? (
+          <div style={stateCardStyle}>No {categoryFilter} scholarships are available right now.</div>
         ) : (
           <section style={scholarshipListStyle}>
-            {scholarships.map((scholarship) => (
+            {visibleScholarships.map((scholarship) => (
               <article key={scholarship.id} style={scholarshipCardStyle}>
                 <div style={cardMainStyle}>
                   <div style={cardHeaderStyle}>
                     <span style={statusPillStyle}>{scholarship.status}</span>
+                    {getScholarshipCategory(scholarship) && (
+                      <span style={categoryPillStyle}>{getScholarshipCategory(scholarship)}</span>
+                    )}
+                    <span style={getScholarTypeStyle(isOldScholarFor(scholarship, myApplications))}>
+                      {isOldScholarFor(scholarship, myApplications) ? "Old Scholar" : "New Scholar"}
+                    </span>
                     <p style={scholarshipIdStyle}>
                       Scholarship ID: {scholarship.scholarship_code || `#${scholarship.id}`}
                     </p>
@@ -169,6 +236,9 @@ const ScholarshipPage = () => {
                 <aside style={cardSideStyle}>
                   <p style={slotsStyle}>
                     <strong>Available Slots:</strong> {Number(scholarship.available_slots) || 0}
+                  </p>
+                  <p style={deadlineStyle}>
+                    <strong>Date Posted:</strong> {formatPostedDate(scholarship.created_at)}
                   </p>
                   <p style={deadlineStyle}>
                     <strong>Deadline:</strong> {formatDeadline(scholarship.deadline)}
@@ -230,6 +300,51 @@ const cardHeaderStyle = {
   alignItems: "center",
   gap: "10px",
 };
+
+const filterBarStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "10px 14px",
+  marginBottom: "clamp(14px, 3vw, 20px)",
+};
+
+const filterLabelStyle = {
+  color: colors.text,
+  fontSize: "14px",
+  fontWeight: 700,
+};
+
+const filterSelectStyle = {
+  ...inputStyle,
+  width: "auto",
+  minWidth: "220px",
+  maxWidth: "100%",
+};
+
+const categoryPillStyle = {
+  ...statusPillStyle,
+  background: colors.field,
+  color: colors.primaryDark,
+  border: `1px solid ${colors.border}`,
+};
+
+// New and old scholars are told apart at a glance: new in the success tint,
+// old in the neutral one, the same pairing the admin applicant list uses.
+const getScholarTypeStyle = (isOld) => ({
+  ...statusPillStyle,
+  ...(isOld
+    ? {
+        background: colors.field,
+        color: colors.text,
+        border: `1px solid ${colors.border}`,
+      }
+    : {
+        background: "var(--viz-good-wash)",
+        color: "var(--viz-good-ink)",
+        border: "1px solid var(--viz-good-line)",
+      }),
+});
 
 const statusBadgeStyle = {
   ...eyebrowStyle,

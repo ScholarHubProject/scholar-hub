@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import AcademicRecordDialog from "../components/AcademicRecordDialog";
+import ApplicationProgress from "../components/ApplicationProgress";
 import api, { getApplicationArchiveUrl } from "../api";
 import { SYNC_CHANNELS, broadcastChange, useLiveSync } from "../liveSync";
 import { useSettings } from "../useSettings";
@@ -158,6 +159,11 @@ const formatTermLabel = (application) => {
 
 const PAGE_SIZE = 25;
 
+// A renewal is someone already holding the scholarship, so the office calls
+// them an old scholar; everyone else is applying for the first time.
+const isOldScholar = (application) =>
+  String(application.application_type || "").toLowerCase() === "renewal";
+
 const ManageApplicants = () => {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -170,6 +176,10 @@ const ManageApplicants = () => {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [scholarTypeFilter, setScholarTypeFilter] = useState("");
+  // "" is every scholarship; otherwise the id of the one list being viewed.
+  const [scholarshipFilter, setScholarshipFilter] = useState("");
+  const [scholarships, setScholarships] = useState([]);
   const [page, setPage] = useState(1);
   // Counted by the server over the whole filtered set. Counting them here
   // would only ever see the page in hand, which read as "16 disapproved"
@@ -179,6 +189,8 @@ const ManageApplicants = () => {
     totalPages: 1,
     pending: 0,
     rejected: 0,
+    newScholars: 0,
+    oldScholars: 0,
   });
   const [settings] = useSettings();
   // Every request takes a number and only the newest one may write the list,
@@ -206,7 +218,14 @@ const ManageApplicants = () => {
 
       return api
         .get("/applications", {
-          params: { search, status: statusFilter, page, pageSize: PAGE_SIZE },
+          params: {
+            search,
+            status: statusFilter,
+            scholarType: scholarTypeFilter,
+            scholarshipId: scholarshipFilter,
+            page,
+            pageSize: PAGE_SIZE,
+          },
         })
         .then((response) => {
           if (requestId !== requestRef.current) return;
@@ -217,6 +236,8 @@ const ManageApplicants = () => {
             totalPages: response.data.totalPages || 1,
             pending: response.data.statusCounts?.pending || 0,
             rejected: response.data.statusCounts?.rejected || 0,
+            newScholars: response.data.statusCounts?.newScholars || 0,
+            oldScholars: response.data.statusCounts?.oldScholars || 0,
           });
         })
         .catch((error) => {
@@ -229,8 +250,16 @@ const ManageApplicants = () => {
           if (requestId === requestRef.current) setLoading(false);
         });
     },
-    [search, statusFilter, page]
+    [search, statusFilter, scholarTypeFilter, scholarshipFilter, page]
   );
+
+  // The tabs only need names, so a failure leaves the "All" list working.
+  useEffect(() => {
+    api
+      .get("/scholarships")
+      .then((response) => setScholarships(Array.isArray(response.data) ? response.data : []))
+      .catch((error) => console.log("Scholarship tabs load error:", error));
+  }, []);
 
   useEffect(() => {
     loadApplications();
@@ -283,6 +312,24 @@ const ManageApplicants = () => {
     }
   };
 
+  // The review steps before a decision. Approve and Reject stay the last
+  // step, so these only appear while the application is still pending.
+  const updateStage = async (id, stage) => {
+    try {
+      const response = await api.put(`/applications/${id}/stage`, { stage });
+
+      showNotice("success", response.data.message);
+      broadcastChange(SYNC_CHANNELS.applications);
+      loadApplications();
+    } catch (error) {
+      console.log("Application stage update error:", error);
+      showNotice(
+        "error",
+        error.response?.data?.message || "Failed to update the review stage"
+      );
+    }
+  };
+
   const requestDeleteApplication = (application) => {
     setPendingDelete(application);
   };
@@ -329,6 +376,7 @@ const ManageApplicants = () => {
       "Contact Number",
       "Scholarship ID",
       "Scholarship Title",
+      "Scholar Type",
       "Status",
       "Remarks",
       "Attachment Name",
@@ -348,6 +396,7 @@ const ManageApplicants = () => {
         application.contact_number,
         application.scholarship_code || application.scholarship_id || "",
         application.scholarship_title,
+        isOldScholar(application) ? "Old Scholar" : "New Scholar",
         formatStatusLabel(application.status),
         application.remarks,
         uploadedFiles.map((file) => file.name).join("; "),
@@ -450,6 +499,27 @@ const ManageApplicants = () => {
           </div>
         )}
 
+        <nav style={scholarshipTabsStyle} aria-label="Scholarship lists">
+          {[{ id: "", title: "All scholarships" }, ...scholarships].map((scholarship) => {
+            const active = String(scholarship.id) === String(scholarshipFilter);
+
+            return (
+              <button
+                key={scholarship.id || "all"}
+                type="button"
+                aria-pressed={active}
+                style={getScholarshipTabStyle(active)}
+                onClick={() => {
+                  setScholarshipFilter(String(scholarship.id));
+                  setPage(1);
+                }}
+              >
+                {scholarship.scholarship_code || scholarship.title}
+              </button>
+            );
+          })}
+        </nav>
+
         <section style={summaryRowStyle}>
           <div style={summaryCardsStyle}>
             <div style={summaryCardStyle}>
@@ -466,6 +536,16 @@ const ManageApplicants = () => {
               <span style={eyebrowStyle}>Disapproved</span>
               <strong style={summaryNumberStyle}>{totals.rejected}</strong>
               <p style={mutedTextStyle}>Rejected applications</p>
+            </div>
+            <div style={summaryCardStyle}>
+              <span style={eyebrowStyle}>New scholars</span>
+              <strong style={summaryNumberStyle}>{totals.newScholars}</strong>
+              <p style={mutedTextStyle}>First-time applicants</p>
+            </div>
+            <div style={summaryCardStyle}>
+              <span style={eyebrowStyle}>Old scholars</span>
+              <strong style={summaryNumberStyle}>{totals.oldScholars}</strong>
+              <p style={mutedTextStyle}>Renewing applicants</p>
             </div>
           </div>
           <div style={summaryActionsStyle}>
@@ -505,13 +585,26 @@ const ManageApplicants = () => {
             <option value="Approved">Approved</option>
             <option value="Rejected">Disapproved</option>
           </select>
+
+          <select
+            style={filterSelectStyle}
+            value={scholarTypeFilter}
+            onChange={(e) => {
+              setScholarTypeFilter(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">New and old scholars</option>
+            <option value="New">New scholars</option>
+            <option value="Old">Old scholars</option>
+          </select>
         </section>
 
         {loading ? (
           <div style={emptyStateStyle}>Loading applications...</div>
         ) : applications.length === 0 ? (
           <div style={emptyStateStyle}>
-            {search || statusFilter
+            {search || statusFilter || scholarTypeFilter
               ? "No applications match that search."
               : "No student applications yet."}
           </div>
@@ -522,6 +615,7 @@ const ManageApplicants = () => {
                 <tr>
                   <th style={thStyle}>Student</th>
                   <th style={thStyle}>Scholarship</th>
+                  <th style={thStyle}>Scholar</th>
                   <th style={thStyle}>Status</th>
                   <th style={thStyle}>Academic record</th>
                   <th style={thStyle}>Remarks</th>
@@ -544,9 +638,17 @@ const ManageApplicants = () => {
                     </td>
                     <td style={tdStyle}>{application.scholarship_title}</td>
                     <td style={tdStyle}>
+                      <span style={getScholarTypeStyle(isOldScholar(application))}>
+                        {isOldScholar(application) ? "Old Scholar" : "New Scholar"}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>
                       <span style={getApplicantStatusStyle(application.status)}>
                         {formatStatusLabel(application.status)}
                       </span>
+                      <div style={progressCellStyle}>
+                        <ApplicationProgress application={application} compact />
+                      </div>
                     </td>
                     <td style={tdStyle}>
                       <p style={tableSubtextStyle}>{formatTermLabel(application)}</p>
@@ -608,6 +710,26 @@ const ManageApplicants = () => {
                     <td style={tdStyle}>{formatDate(application.created_at)}</td>
                     <td style={tdStyle}>
                       <div style={actionsStyle}>
+                        {application.status === "Pending Review" &&
+                          (application.review_stage || "Submitted") === "Submitted" && (
+                            <button
+                              type="button"
+                              style={stageBtnStyle}
+                              onClick={() => updateStage(application.id, "Checking")}
+                            >
+                              Start Checking
+                            </button>
+                          )}
+                        {application.status === "Pending Review" &&
+                          application.review_stage === "Checking" && (
+                            <button
+                              type="button"
+                              style={stageBtnStyle}
+                              onClick={() => updateStage(application.id, "Evaluation")}
+                            >
+                              Move to Evaluation
+                            </button>
+                          )}
                         <button
                           style={approveBtnStyle}
                           onClick={() => updateStatus(application.id, "Approved")}
@@ -819,6 +941,53 @@ const dialogActionsStyle = {
   flexWrap: "wrap",
   justifyContent: "flex-end",
 };
+
+const scholarshipTabsStyle = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+  marginBottom: "16px",
+};
+
+const getScholarshipTabStyle = (active) => ({
+  padding: "8px 16px",
+  borderRadius: "999px",
+  border: `1px solid ${active ? colors.primary : colors.border}`,
+  background: active ? colors.primary : colors.surface,
+  color: active ? "#fff" : colors.primaryDark,
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+});
+
+const progressCellStyle = {
+  marginTop: "8px",
+  minWidth: "260px",
+};
+
+const stageBtnStyle = {
+  ...buttonSecondaryStyle,
+  padding: "8px 12px",
+  fontSize: "12.5px",
+  whiteSpace: "nowrap",
+};
+
+const getScholarTypeStyle = (isOld) => ({
+  ...statusPillStyle,
+  justifyContent: "center",
+  whiteSpace: "nowrap",
+  ...(isOld
+    ? {
+        background: colors.field,
+        color: colors.text,
+        border: `1px solid ${colors.border}`,
+      }
+    : {
+        background: "var(--viz-good-wash)",
+        color: "var(--viz-good-ink)",
+        border: "1px solid var(--viz-good-line)",
+      }),
+});
 
 const getApplicantStatusStyle = (status) => {
   const normalizedStatus = String(status || "").toLowerCase();

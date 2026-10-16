@@ -89,8 +89,16 @@ const Login = () => {
   // The password field is the only thing to do on that screen, so the
   // cursor starts there. autoFocus would not fire on a view change,
   // because React keeps the same input element between views.
+  // After a failed sign-in the form view mounts with the email already
+  // filled in, so the cursor goes to the password rather than the email
+  // field's autoFocus.
+  const focusPasswordOnFormRef = useRef(false);
   useEffect(() => {
     if (view === VIEWS.password) passwordRef.current?.focus();
+    if (view === VIEWS.form && focusPasswordOnFormRef.current) {
+      focusPasswordOnFormRef.current = false;
+      passwordRef.current?.focus();
+    }
   }, [view]);
 
   const clearErrors = () => {
@@ -225,11 +233,16 @@ const Login = () => {
           "Cannot reach the server right now. Check your connection and try again.",
       });
 
-      // Wrong credentials: clear the password and put the cursor back in
-      // it, which is the only field they can usefully change.
-      if (error.response?.status === 401) {
-        setPassword("");
+      // A failed sign-in always lands back on the full sign-in form, with
+      // the email and role kept, so the user can correct whichever was
+      // wrong instead of being stuck on a saved account's password prompt.
+      setPassword("");
+      setActiveAccount(null);
+      focusPasswordOnFormRef.current = true;
+      if (view === VIEWS.form) {
         passwordRef.current?.focus();
+      } else {
+        setView(VIEWS.form);
       }
     } finally {
       setIsLoading(false);

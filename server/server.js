@@ -755,6 +755,7 @@ const createScholarshipsTable = () => {
     ensureScholarshipColumn("qualification", "TEXT");
     ensureScholarshipColumn("requirements", "TEXT");
     ensureScholarshipColumn("available_slots", "INT NOT NULL DEFAULT 0");
+    ensureScholarshipColumn("category", "VARCHAR(40)");
   });
 };
 
@@ -805,6 +806,10 @@ const createApplicationsTable = () => {
     ensureApplicationColumn("uploaded_file_size", "INT");
     ensureApplicationColumn("uploaded_files_json", "TEXT");
     ensureApplicationColumn("status_updated_at", "TIMESTAMP NULL DEFAULT NULL");
+    // Where a pending application is in the office's review. The final
+    // Approved/Rejected answer stays in status; this only says how far the
+    // review has got before it.
+    ensureApplicationColumn("review_stage", "VARCHAR(20) NOT NULL DEFAULT 'Submitted'");
     ensureApplicationColumn("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
 
     // Analytics and reporting. Everything the dashboards group, filter or
@@ -2162,7 +2167,7 @@ const updateUserAvatar = async (req, res) => {
 
 const getScholarships = (req, res) => {
   const sql = `
-    SELECT id, scholarship_code, title, description, benefits, qualification, requirements, available_slots, deadline, status, created_at
+    SELECT id, scholarship_code, category, title, description, benefits, qualification, requirements, available_slots, deadline, status, created_at
     FROM scholarships
     ORDER BY created_at DESC, id DESC
   `;
@@ -2179,6 +2184,10 @@ const getScholarships = (req, res) => {
   });
 };
 
+// Mirrors client/src/scholarshipCategories.js. Anything else is stored as no
+// category rather than as free text the student filter would never match.
+const SCHOLARSHIP_CATEGORIES = ["TDP", "Barangay Scholar", "LGU Scholar"];
+
 const createScholarship = (req, res) => {
   const {
     scholarshipCode,
@@ -2192,8 +2201,10 @@ const createScholarship = (req, res) => {
     available_slots,
     deadline,
     status = "Open",
+    category,
   } = req.body;
   const cleanScholarshipCode = (scholarshipCode || scholarship_code || "").trim();
+  const cleanCategory = SCHOLARSHIP_CATEGORIES.includes(category) ? category : null;
   const cleanTitle = title?.trim();
   const cleanDescription = description?.trim();
   const cleanBenefits = benefits?.trim() || "";
@@ -2213,8 +2224,8 @@ const createScholarship = (req, res) => {
   }
 
   const sql = `
-    INSERT INTO scholarships (scholarship_code, title, description, benefits, qualification, requirements, available_slots, deadline, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scholarships (scholarship_code, title, description, benefits, qualification, requirements, available_slots, deadline, status, category)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   db.query(
@@ -2229,6 +2240,7 @@ const createScholarship = (req, res) => {
       cleanAvailableSlots,
       cleanDeadline,
       cleanStatus,
+      cleanCategory,
     ],
     (err, result) => {
       if (err) {
@@ -2261,6 +2273,7 @@ const createScholarship = (req, res) => {
           available_slots: cleanAvailableSlots,
           deadline: cleanDeadline,
           status: cleanStatus,
+          category: cleanCategory,
         },
       });
     }
@@ -2281,8 +2294,10 @@ const updateScholarship = (req, res) => {
     available_slots,
     deadline,
     status = "Open",
+    category,
   } = req.body;
   const cleanScholarshipCode = (scholarshipCode || scholarship_code || "").trim();
+  const cleanCategory = SCHOLARSHIP_CATEGORIES.includes(category) ? category : null;
   const cleanTitle = title?.trim();
   const cleanDescription = description?.trim();
   const cleanBenefits = benefits?.trim() || "";
@@ -2307,7 +2322,7 @@ const updateScholarship = (req, res) => {
   // overwritten. RETURNING would give the new row, not the old one.
   const sql = `
     UPDATE scholarships
-    SET scholarship_code = ?, title = ?, description = ?, benefits = ?, qualification = ?, requirements = ?, available_slots = ?, deadline = ?, status = ?
+    SET scholarship_code = ?, title = ?, description = ?, benefits = ?, qualification = ?, requirements = ?, available_slots = ?, deadline = ?, status = ?, category = ?
     WHERE id = ?
     RETURNING id
   `;
@@ -2330,6 +2345,7 @@ const updateScholarship = (req, res) => {
           cleanAvailableSlots,
           cleanDeadline,
           cleanStatus,
+          cleanCategory,
           id,
         ],
         (err, rows) => {
@@ -3077,6 +3093,27 @@ const getApplications = (req, res) => {
     values.push(status);
   }
 
+  // One scholarship's list (TDP, TES, ...). Matched by id; applications filed
+  // before scholarship_id existed only carry the title.
+  const scholarshipId = Number.parseInt(req.query.scholarshipId, 10);
+
+  if (Number.isInteger(scholarshipId) && scholarshipId > 0) {
+    conditions.push(
+      "(a.scholarship_id = ? OR (a.scholarship_id IS NULL AND a.scholarship_title = (SELECT title FROM scholarships WHERE id = ?)))"
+    );
+    values.push(scholarshipId, scholarshipId);
+  }
+
+  // New scholar = first application to that scholarship; old scholar = a
+  // renewal. Anything not marked Renewal counts as new, the column default.
+  const scholarType = String(req.query.scholarType || "").trim();
+
+  if (scholarType === "Old") {
+    conditions.push("LOWER(COALESCE(a.application_type, 'New')) = 'renewal'");
+  } else if (scholarType === "New") {
+    conditions.push("LOWER(COALESCE(a.application_type, 'New')) <> 'renewal'");
+  }
+
   const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   // The status tallies are counted here, over the whole filtered set, rather
@@ -3087,7 +3124,8 @@ const getApplications = (req, res) => {
     SELECT COUNT(*) AS total,
       COUNT(*) FILTER (WHERE a.status = 'Pending Review') AS pending,
       COUNT(*) FILTER (WHERE a.status = 'Rejected') AS rejected,
-      COUNT(*) FILTER (WHERE a.status = 'Approved') AS approved
+      COUNT(*) FILTER (WHERE a.status = 'Approved') AS approved,
+      COUNT(*) FILTER (WHERE LOWER(COALESCE(a.application_type, 'New')) = 'renewal') AS old_scholars
     FROM applications a
     LEFT JOIN scholarships s ON s.id = a.scholarship_id
     ${whereSql}
@@ -3106,13 +3144,15 @@ const getApplications = (req, res) => {
       pending: Number(countRows[0]?.pending) || 0,
       rejected: Number(countRows[0]?.rejected) || 0,
       approved: Number(countRows[0]?.approved) || 0,
+      oldScholars: Number(countRows[0]?.old_scholars) || 0,
+      newScholars: total - (Number(countRows[0]?.old_scholars) || 0),
     };
     const sql = `
       SELECT a.id, a.student_name, a.school_id_number, a.email, a.course_year, a.contact_number,
         a.scholarship_id, s.scholarship_code, COALESCE(NULLIF(a.scholarship_title, ''), s.title) AS scholarship_title,
         a.status, a.remarks, a.uploaded_file_name, a.uploaded_file_path, a.uploaded_file_type, a.uploaded_file_size, a.uploaded_files_json, a.status_updated_at, a.created_at,
         a.academic_year, a.semester, a.program, a.application_type, a.gpa, a.award_amount, a.disbursed_at, a.documents_json,
-        s.requirements
+        a.review_stage, s.requirements
       FROM applications a
       LEFT JOIN scholarships s ON s.id = a.scholarship_id
       ${whereSql}
@@ -3155,7 +3195,8 @@ const getStudentApplications = (req, res) => {
     SELECT a.id, a.student_name, a.school_id_number, a.email, a.course_year, a.contact_number,
       a.scholarship_id, COALESCE(NULLIF(a.scholarship_title, ''), s.title) AS scholarship_title,
       a.status, a.remarks, a.uploaded_file_name, a.uploaded_file_path, a.uploaded_file_type, a.uploaded_file_size, a.uploaded_files_json, a.status_updated_at, a.created_at,
-      a.academic_year, a.semester, a.program, a.application_type, a.gpa, a.award_amount, a.disbursed_at
+      a.academic_year, a.semester, a.program, a.application_type, a.gpa, a.award_amount, a.disbursed_at,
+      a.review_stage
     FROM applications a
     LEFT JOIN scholarships s ON s.id = a.scholarship_id
     WHERE ${whereClause}
@@ -3207,6 +3248,54 @@ const releaseScholarshipSlot = (scholarshipId, done = () => {}) =>
       done(err);
     }
   );
+
+// Moves a pending application along Submitted -> Checking -> Evaluation. Only
+// a pending one: once it is approved, rejected or withdrawn the outcome is the
+// last step, and rewinding the stage behind it would make the tracker lie.
+const REVIEW_STAGES = ["Submitted", "Checking", "Evaluation"];
+
+const updateApplicationStage = (req, res) => {
+  const applicationId = Number.parseInt(req.params.id, 10);
+  const stage = String(req.body?.stage || "").trim();
+
+  if (!Number.isInteger(applicationId)) {
+    return res.status(404).json({ message: "Application not found" });
+  }
+
+  if (!REVIEW_STAGES.includes(stage)) {
+    return res.status(400).json({ message: "Invalid review stage" });
+  }
+
+  db.query(
+    `UPDATE applications
+     SET review_stage = ?, status_updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'Pending Review'
+     RETURNING id, student_name, scholarship_title`,
+    [stage, applicationId],
+    (err, rows) => {
+      if (err) {
+        console.log("Application Stage Update Error:", err);
+        return res.status(500).json({ message: "Failed to update the review stage" });
+      }
+
+      if (rows.length === 0) {
+        return res.status(409).json({
+          message: "Only a pending application can be moved to another review stage.",
+        });
+      }
+
+      recordAudit(req, {
+        action: "application.stage",
+        entityType: "application",
+        entityId: applicationId,
+        summary: `Moved ${rows[0].student_name}'s ${rows[0].scholarship_title} application to ${stage}`,
+        metadata: { stage },
+      });
+
+      return res.json({ message: `Application moved to ${stage}`, review_stage: stage });
+    }
+  );
+};
 
 const updateApplicationStatus = (req, res) => {
   const { id } = req.params;
@@ -4827,6 +4916,7 @@ api.get(
 // Admin only.
 api.get("/applications", requireRole("Admin"), getApplications);
 api.put("/applications/:id/status", requireRole("Admin"), updateApplicationStatus);
+api.put("/applications/:id/stage", requireRole("Admin"), updateApplicationStage);
 api.delete("/applications/:id", requireRole("Admin"), deleteApplication);
 api.post("/scholarships", requireRole("Admin"), createScholarship);
 api.put("/scholarships/:id", requireRole("Admin"), updateScholarship);

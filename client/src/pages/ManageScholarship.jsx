@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import api from "../api";
 import { SYNC_CHANNELS, broadcastChange } from "../liveSync";
 import { HeroBanner } from "../components/ui";
+import { SCHOLARSHIP_CATEGORIES, getScholarshipCategory } from "../scholarshipCategories";
 import {
   buttonDangerStyle,
   buttonPrimaryStyle,
@@ -27,6 +28,7 @@ const emptyForm = {
   available_slots: "",
   deadline: "",
   status: "Open",
+  category: "",
 };
 
 const formatDeadline = (deadline) => {
@@ -162,6 +164,7 @@ const ManageScholarship = () => {
           : String(scholarship.available_slots),
       deadline: toDateInputValue(scholarship.deadline),
       status: scholarship.status,
+      category: getScholarshipCategory(scholarship),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -287,6 +290,20 @@ const ManageScholarship = () => {
                 <option value="Closed">Closed</option>
                 <option value="Upcoming">Upcoming</option>
               </select>
+
+              <select
+                style={inputStyle}
+                aria-label="Category"
+                value={formData.category}
+                onChange={(event) => updateField("category", event.target.value)}
+              >
+                <option value="">No category</option>
+                {SCHOLARSHIP_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={actionsStyle}>
@@ -332,6 +349,11 @@ const ManageScholarship = () => {
             {scholarships.map((scholarship) => (
               <article key={scholarship.id} style={programCardStyle}>
                 <span style={statusPillStyle}>{scholarship.status}</span>
+                {getScholarshipCategory(scholarship) && (
+                  <p style={scholarshipIdStyle}>
+                    Category: {getScholarshipCategory(scholarship)}
+                  </p>
+                )}
                 <p style={scholarshipIdStyle}>
                   Scholarship ID: {scholarship.scholarship_code || `#${scholarship.id}`}
                 </p>

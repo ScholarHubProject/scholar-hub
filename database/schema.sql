@@ -67,6 +67,7 @@ CREATE TABLE users (
 CREATE TABLE scholarships (
   id SERIAL PRIMARY KEY,
   scholarship_code VARCHAR(80),
+  category VARCHAR(40),                                -- 'TDP' | 'Barangay Scholar' | 'LGU Scholar'
   title VARCHAR(180) NOT NULL,
   description TEXT NOT NULL,
   benefits TEXT,
@@ -120,6 +121,7 @@ CREATE TABLE applications (
   semester VARCHAR(30),                               -- '1st Semester' | '2nd Semester' | 'Summer'
   program VARCHAR(120),                               -- course without the year level
   application_type VARCHAR(20) NOT NULL DEFAULT 'New',-- 'New' | 'Renewal'
+  review_stage VARCHAR(20) NOT NULL DEFAULT 'Submitted', -- 'Submitted' | 'Checking' | 'Evaluation'
   gpa NUMERIC(4,2),                                   -- 4.00 scale, 2.00 is the retention minimum
   award_amount NUMERIC(12,2),
   disbursed_at TIMESTAMP,
